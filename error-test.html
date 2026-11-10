@@ -1,0 +1,107 @@
+
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0" />
+  <title>Space Arena — Error Tests</title>
+
+  <style>
+    body {
+      background: #101827;
+      color: #e5f4ff;
+      font-family: Arial, sans-serif;
+      padding: 30px;
+    }
+
+    button {
+      background: #0891b2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 12px 18px;
+      margin: 6px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #0e7490;
+    }
+
+    #results {
+      background: #18263a;
+      padding: 20px;
+      margin-top: 20px;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      min-height: 160px;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Space Arena — Async Error Tests</h2>
+
+  <p>
+    Перевірка обробки помилок асинхронних операцій.
+  </p>
+
+  <button id="test404">HTTP 404</button>
+  <button id="testTimeout">Timeout</button>
+  <button id="testAbort">Abort</button>
+  <button id="testJson">Invalid JSON</button>
+  <button id="testRetry">Retry</button>
+
+  <pre id="results">Оберіть тест для запуску.</pre>
+
+  <script type="module">
+    import {
+      test404,
+      testTimeout,
+      testAbort,
+      testInvalidJson,
+      testRetry,
+    } from '/src/async/error-tests.js';
+
+    const results = document.querySelector('#results');
+
+    async function runTest(name, testFunction) {
+      results.textContent = `Running: ${name}\n`;
+
+      const originalLog = console.log;
+
+      console.log = (...args) => {
+        originalLog(...args);
+
+        results.textContent +=
+          args.map(String).join(' ') + '\n';
+      };
+
+      try {
+        await testFunction();
+      } catch (error) {
+        results.textContent +=
+          `Unexpected error: ${error.message}\n`;
+      } finally {
+        console.log = originalLog;
+      }
+    }
+
+    document.querySelector('#test404').onclick =
+      () => runTest('HTTP 404', test404);
+
+    document.querySelector('#testTimeout').onclick =
+      () => runTest('Timeout', testTimeout);
+
+    document.querySelector('#testAbort').onclick =
+      () => runTest('Abort', testAbort);
+
+    document.querySelector('#testJson').onclick =
+      () => runTest('Invalid JSON', testInvalidJson);
+
+    document.querySelector('#testRetry').onclick =
+      () => runTest('Retry', testRetry);
+  </script>
+</body>
+</html>

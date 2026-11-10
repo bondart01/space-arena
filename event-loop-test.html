@@ -1,0 +1,36 @@
+
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Space Arena — Event Loop Experiments</title>
+</head>
+<body>
+  <h2>JavaScript Event Loop — 5 Experiments</h2>
+
+  <p>Виберіть експеримент і перегляньте результат у Console (F12).</p>
+
+  <button id="exp1">Experiment 1</button>
+  <button id="exp2">Experiment 2</button>
+  <button id="exp3">Experiment 3</button>
+  <button id="exp4">Experiment 4</button>
+  <button id="exp5">Experiment 5</button>
+
+  <script type="module">
+    import {
+      experiment1,
+      experiment2,
+      runExperiment3,
+      experiment4,
+      experiment5,
+    } from '/src/async/event-loop-experiments.js';
+
+    document.querySelector('#exp1').onclick = experiment1;
+    document.querySelector('#exp2').onclick = experiment2;
+    document.querySelector('#exp3').onclick = runExperiment3;
+    document.querySelector('#exp4').onclick = experiment4;
+    document.querySelector('#exp5').onclick = experiment5;
+  </script>
+</body>
+</html>

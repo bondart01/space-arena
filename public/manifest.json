@@ -1,0 +1,42 @@
+
+{
+  "version": "1.0.0",
+  "name": "Space Arena",
+  "assets": [
+    {
+      "id": "ship",
+      "type": "image",
+      "url": "/assets/ship.png"
+    },
+    {
+      "id": "bullet",
+      "type": "image",
+      "url": "/assets/bullet.png"
+    },
+    {
+      "id": "asteroid",
+      "type": "image",
+      "url": "/assets/asteroid.png"
+    },
+    {
+      "id": "rooms",
+      "type": "json",
+      "url": "/api/rooms.json"
+    },
+    {
+      "id": "shoot",
+      "type": "audio",
+      "url": "/assets/audio/shoot.wav"
+    },
+    {
+      "id": "hit",
+      "type": "audio",
+      "url": "/assets/audio/hit.wav"
+    },
+    {
+      "id": "explosion",
+      "type": "audio",
+      "url": "/assets/audio/explosion.wav"
+    }
+  ]
+}

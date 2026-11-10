@@ -1,0 +1,26 @@
+
+{
+  "rooms": [
+    {
+      "id": "arena-1",
+      "name": "Classic Arena",
+      "maxPlayers": 4,
+      "width": 960,
+      "height": 540
+    },
+    {
+      "id": "arena-2",
+      "name": "Asteroid Field",
+      "maxPlayers": 6,
+      "width": 960,
+      "height": 540
+    },
+    {
+      "id": "arena-3",
+      "name": "Survival Zone",
+      "maxPlayers": 2,
+      "width": 960,
+      "height": 540
+    }
+  ]
+}

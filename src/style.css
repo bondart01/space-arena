@@ -85,3 +85,97 @@ body {
   border-radius: 12px;
   box-sizing: border-box;
 }
+
+/* ========================================
+   SPACE ARENA — LOBBY
+======================================== */
+
+.lobby-container {
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.lobby-panel {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 32px;
+  background: #102238;
+  border: 2px solid #22d3ee;
+  border-radius: 16px;
+  box-shadow: 0 0 35px #0891b233;
+  color: #e2e8f0;
+  font-family: Arial, sans-serif;
+}
+
+.lobby-panel h2 {
+  text-align: center;
+  color: #42e8ff;
+  font-size: 32px;
+  letter-spacing: 4px;
+  margin: 0;
+}
+
+.lobby-subtitle {
+  text-align: center;
+  color: #94a3b8;
+  margin: 10px 0 30px;
+}
+
+.lobby-panel label {
+  display: block;
+  margin: 18px 0 8px;
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.lobby-panel input,
+.lobby-panel select {
+  width: 100%;
+  padding: 14px;
+  box-sizing: border-box;
+  background: #07111f;
+  color: #ffffff;
+  border: 1px solid #36536b;
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+.lobby-panel input:focus,
+.lobby-panel select:focus {
+  outline: none;
+  border-color: #22d3ee;
+}
+
+.lobby-status {
+  min-height: 20px;
+  margin: 18px 0;
+  color: #94a3b8;
+  text-align: center;
+  font-size: 14px;
+}
+
+.lobby-join {
+  width: 100%;
+  padding: 16px;
+  background: #0891b2;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.lobby-join:hover:not(:disabled) {
+  background: #06b6d4;
+}
+
+.lobby-join:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

@@ -1,4 +1,6 @@
 
+/* global window, Math */
+
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
 
@@ -8,37 +10,36 @@ export function createRenderer(canvas) {
 
   canvas.width = width * dpr;
   canvas.height = height * dpr;
-
   canvas.style.width = '100%';
   canvas.style.maxWidth = `${width}px`;
   canvas.style.aspectRatio = `${width} / ${height}`;
-  canvas.style.display = 'block';
-  canvas.style.margin = '0 auto';
 
   ctx.scale(dpr, dpr);
 
-  // ========================================
-  // ЗОРЯНИЙ ФОН
-  // ========================================
+  let assets = new Map();
 
   const stars = Array.from({ length: 100 }, () => ({
     x: Math.random() * width,
     y: Math.random() * height,
-    radius: Math.random() * 1.5 + 0.3,
+    size: Math.random() * 1.5 + 0.3,
   }));
+
+  function setAssets(loadedAssets) {
+    assets = loadedAssets;
+  }
 
   function drawBackground() {
     ctx.fillStyle = '#07111f';
     ctx.fillRect(0, 0, width, height);
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#dbeafe';
 
     for (const star of stars) {
       ctx.beginPath();
       ctx.arc(
         star.x,
         star.y,
-        star.radius,
+        star.size,
         0,
         Math.PI * 2,
       );
@@ -46,44 +47,116 @@ export function createRenderer(canvas) {
     }
   }
 
-  // ========================================
-  // КОСМІЧНИЙ КОРАБЕЛЬ
-  // ========================================
+  function drawSprite(
+    image,
+    frameWidth,
+    frameHeight,
+    frame,
+    x,
+    y,
+    drawWidth,
+    drawHeight,
+    rotation = 0,
+  ) {
+    if (!image) return false;
 
-  function drawShip(ship) {
+    const frameCount = Math.floor(
+      image.width / frameWidth,
+    );
+
+    if (frameCount < 1) return false;
+
+    const currentFrame =
+      Math.floor(frame) % frameCount;
+
     ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rotation);
 
+    ctx.drawImage(
+      image,
+      currentFrame * frameWidth,
+      0,
+      frameWidth,
+      frameHeight,
+      -drawWidth / 2,
+      -drawHeight / 2,
+      drawWidth,
+      drawHeight,
+    );
+
+    ctx.restore();
+
+    return true;
+  }
+
+  function drawShip(ship, time) {
+    const image = assets.get('ship');
+
+    const frame = Math.floor(time * 10) % 4;
+
+    if (
+      drawSprite(
+        image,
+        64,
+        64,
+        frame,
+        ship.position.x,
+        ship.position.y,
+        48,
+        48,
+        ship.angle,
+      )
+    ) {
+      return;
+    }
+
+    // Резервне малювання без спрайтшита
+    ctx.save();
     ctx.translate(ship.position.x, ship.position.y);
     ctx.rotate(ship.angle);
 
     ctx.strokeStyle = '#42e8ff';
-    ctx.fillStyle = '#103b54';
     ctx.lineWidth = 2;
 
     ctx.beginPath();
     ctx.moveTo(20, 0);
-    ctx.lineTo(-14, -12);
-    ctx.lineTo(-9, 0);
-    ctx.lineTo(-14, 12);
+    ctx.lineTo(-12, -12);
+    ctx.lineTo(-8, 0);
+    ctx.lineTo(-12, 12);
     ctx.closePath();
-
-    ctx.fill();
     ctx.stroke();
 
     ctx.restore();
   }
 
-  // ========================================
-  // КУЛІ
-  // ========================================
+  function drawBullet(bullet, time) {
+    const image = assets.get('bullet');
 
-  function drawBullet(bullet) {
-    ctx.save();
+    const frame = Math.floor(time * 16) % 4;
 
-    ctx.fillStyle = '#ffe066';
-    ctx.shadowColor = '#facc15';
-    ctx.shadowBlur = 10;
+    const rotation = Math.atan2(
+      bullet.velocity.y,
+      bullet.velocity.x,
+    );
 
+    if (
+      drawSprite(
+        image,
+        32,
+        32,
+        frame,
+        bullet.position.x,
+        bullet.position.y,
+        22,
+        22,
+        rotation,
+      )
+    ) {
+      return;
+    }
+
+    ctx.fillStyle = '#facc15';
     ctx.beginPath();
     ctx.arc(
       bullet.position.x,
@@ -93,105 +166,137 @@ export function createRenderer(canvas) {
       Math.PI * 2,
     );
     ctx.fill();
-
-    ctx.restore();
   }
 
-  // ========================================
-  // АСТЕРОЇДИ
-  // ========================================
+  function drawAsteroid(asteroid, time) {
+    const image = assets.get('asteroid');
 
-  function drawAsteroid(asteroid) {
-    ctx.save();
+    const frame = Math.floor(time * 4) % 4;
 
-    ctx.translate(
-      asteroid.position.x,
-      asteroid.position.y,
-    );
-
-    ctx.rotate(asteroid.rotation);
-
-    // Якщо є компонент Homing — астероїд червоний
     const isHoming = Boolean(asteroid.homing);
 
+    ctx.save();
+
     if (isHoming) {
-      ctx.strokeStyle = '#ff7777';
-      ctx.fillStyle = '#991b1b';
-      ctx.shadowColor = '#ef4444';
-      ctx.shadowBlur = 22;
-    } else {
-      ctx.strokeStyle = '#aab8cc';
-      ctx.fillStyle = '#334155';
-      ctx.shadowBlur = 0;
+      ctx.shadowColor = '#ff3344';
+      ctx.shadowBlur = 24;
     }
 
-    ctx.lineWidth = 3;
+    const drawn = drawSprite(
+      image,
+      64,
+      64,
+      frame,
+      asteroid.position.x,
+      asteroid.position.y,
+      asteroid.radius * 2.3,
+      asteroid.radius * 2.3,
+      asteroid.rotation || 0,
+    );
 
-    ctx.beginPath();
+    if (!drawn) {
+      ctx.translate(
+        asteroid.position.x,
+        asteroid.position.y,
+      );
 
-    const points = 9;
+      ctx.rotate(asteroid.rotation || 0);
 
-    for (let i = 0; i < points; i++) {
-      const angle = (i / points) * Math.PI * 2;
-
-      const radius =
-        asteroid.radius *
-        (i % 2 === 0 ? 1 : 0.78);
-
-      const x = Math.cos(angle) * radius;
-      const y = Math.sin(angle) * radius;
-
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    }
-
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Позначка цілі на астероїді із самонаведенням
-    if (isHoming) {
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#fecaca';
+      ctx.fillStyle = '#475569';
+      ctx.strokeStyle = '#cbd5e1';
       ctx.lineWidth = 2;
 
       ctx.beginPath();
-      ctx.arc(0, 0, 7, 0, Math.PI * 2);
-      ctx.moveTo(-11, 0);
-      ctx.lineTo(11, 0);
-      ctx.moveTo(0, -11);
-      ctx.lineTo(0, 11);
+
+      for (let i = 0; i < 7; i++) {
+        const angle = (i / 7) * Math.PI * 2;
+
+        const x = Math.cos(angle) * asteroid.radius;
+        const y = Math.sin(angle) * asteroid.radius;
+
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+
+      ctx.closePath();
+      ctx.fill();
       ctx.stroke();
     }
 
     ctx.restore();
+
+    if (isHoming) {
+      ctx.save();
+
+      ctx.strokeStyle = '#ff4455';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#ff3344';
+      ctx.shadowBlur = 12;
+
+      ctx.beginPath();
+      ctx.arc(
+        asteroid.position.x,
+        asteroid.position.y,
+        asteroid.radius + 8,
+        0,
+        Math.PI * 2,
+      );
+      ctx.stroke();
+
+      ctx.restore();
+    }
   }
 
-  // ========================================
-  // ЧАСТИНКИ ВИБУХУ
-  // ========================================
+  function drawPickup(pickup) {
+    const x = pickup.position.x;
+    const y = pickup.position.y;
+
+    ctx.save();
+
+    ctx.shadowColor = '#22c55e';
+    ctx.shadowBlur = 18;
+
+    ctx.fillStyle = '#22c55e';
+
+    ctx.beginPath();
+    ctx.arc(x, y, pickup.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y);
+    ctx.lineTo(x + 6, y);
+    ctx.moveTo(x, y - 6);
+    ctx.lineTo(x, y + 6);
+    ctx.stroke();
+
+    ctx.restore();
+  }
 
   function drawParticle(particle) {
-    const alpha = Math.max(
+    const ratio = Math.max(
       0,
-      particle.ttl / particle.maxTtl,
+      particle.ttl / (particle.maxTtl || 1),
     );
 
     ctx.save();
 
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = particle.color;
-    ctx.shadowColor = particle.color;
-    ctx.shadowBlur = 8;
+    ctx.globalAlpha = ratio;
+
+    ctx.fillStyle = particle.color || '#fb923c';
 
     ctx.beginPath();
     ctx.arc(
       particle.position.x,
       particle.position.y,
-      particle.radius,
+      particle.radius || 3,
       0,
       Math.PI * 2,
     );
@@ -199,78 +304,34 @@ export function createRenderer(canvas) {
 
     ctx.restore();
   }
-
-  // ========================================
-  // БОНУС ЗДОРОВ'Я
-  // ========================================
-
-  function drawPickup(pickup) {
-    const { x, y } = pickup.position;
-
-    ctx.save();
-    ctx.translate(x, y);
-
-    ctx.fillStyle = '#22c55e';
-    ctx.strokeStyle = '#bbf7d0';
-    ctx.lineWidth = 2;
-
-    ctx.shadowColor = '#22c55e';
-    ctx.shadowBlur = 15;
-
-    ctx.beginPath();
-    ctx.arc(
-      0,
-      0,
-      pickup.radius,
-      0,
-      Math.PI * 2,
-    );
-    ctx.fill();
-    ctx.stroke();
-
-    // Білий хрестик
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-
-    ctx.beginPath();
-    ctx.moveTo(-6, 0);
-    ctx.lineTo(6, 0);
-    ctx.moveTo(0, -6);
-    ctx.lineTo(0, 6);
-    ctx.stroke();
-
-    ctx.restore();
-  }
-
-  // ========================================
-  // ВІДОБРАЖЕННЯ ГРИ
-  // ========================================
 
   function render(world) {
+    const time = performance.now() / 1000;
+
     drawBackground();
 
     for (const entity of world) {
+      if (!entity.alive) continue;
+
       switch (entity.kind) {
         case 'ship':
-          drawShip(entity);
+          drawShip(entity, time);
           break;
 
         case 'bullet':
-          drawBullet(entity);
+          drawBullet(entity, time);
           break;
 
         case 'asteroid':
-          drawAsteroid(entity);
-          break;
-
-        case 'particle':
-          drawParticle(entity);
+          drawAsteroid(entity, time);
           break;
 
         case 'pickup':
           drawPickup(entity);
+          break;
+
+        case 'particle':
+          drawParticle(entity);
           break;
 
         default:
@@ -280,8 +341,9 @@ export function createRenderer(canvas) {
   }
 
   return {
-    render,
     width,
     height,
+    render,
+    setAssets,
   };
 }
