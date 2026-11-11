@@ -42,14 +42,11 @@ export class Room extends EventEmitter {
 
     this.world = createWorld(this.seed);
 
-    // Черги вхідних команд гравців.
+    // Черги команд гравців.
     this.inputs = new Map();
 
     // Останній отриманий номер команди.
     this.lastReceivedSeq = new Map();
-
-    // Останній стан керування гравця.
-    this.lastControls = new Map();
 
     // Останній оброблений номер команди.
     this.lastProcessedSeq = new Map();
@@ -67,6 +64,10 @@ export class Room extends EventEmitter {
       );
     });
   }
+
+  // ========================================
+  // ПІДКЛЮЧЕННЯ ГРАВЦЯ
+  // ========================================
 
   join(playerId, playerName, socket) {
     if (this.players.has(playerId)) {
@@ -93,7 +94,7 @@ export class Room extends EventEmitter {
 
     this.players.set(playerId, player);
 
-    // Початкове розташування кораблів.
+    // Початкові позиції кораблів.
     const index = this.players.size - 1;
 
     const x =
@@ -113,14 +114,18 @@ export class Room extends EventEmitter {
       angle,
     );
 
-    // Ініціалізація мережевого стану.
+    // Ініціалізація черги команд.
     this.inputs.set(playerId, []);
-    this.lastReceivedSeq.set(playerId, 0);
-    this.lastControls.set(
+
+    this.lastReceivedSeq.set(
       playerId,
-      normalizeInput(),
+      0,
     );
-    this.lastProcessedSeq.set(playerId, 0);
+
+    this.lastProcessedSeq.set(
+      playerId,
+      0,
+    );
 
     if (!this.gameLoop.running) {
       this.gameLoop.start();
@@ -134,6 +139,10 @@ export class Room extends EventEmitter {
 
     return player;
   }
+
+  // ========================================
+  // ОТРИМАННЯ КОМАНД ВІД КЛІЄНТА
+  // ========================================
 
   receiveInput(playerId, rawInput) {
     if (!this.players.has(playerId)) {
@@ -154,7 +163,7 @@ export class Room extends EventEmitter {
     const lastProcessed =
       this.lastProcessedSeq.get(playerId) ?? 0;
 
-    // Ігноруємо старі або повторні команди.
+    // Ігноруємо повторні та застарілі команди.
     if (
       rawInput.seq <= lastReceived ||
       rawInput.seq <= lastProcessed
@@ -168,7 +177,7 @@ export class Room extends EventEmitter {
       return false;
     }
 
-    // Обмежуємо розмір черги.
+    // Захист від переповнення черги.
     if (queue.length >= MAX_INPUT_QUEUE) {
       return false;
     }
@@ -185,6 +194,10 @@ export class Room extends EventEmitter {
     return true;
   }
 
+  // ========================================
+  // ОБРОБКА КОМАНД НА СЕРВЕРНОМУ ТАКТІ
+  // ========================================
+
   collectInputs() {
     const inputs = {};
 
@@ -192,45 +205,41 @@ export class Room extends EventEmitter {
       const queue = this.inputs.get(playerId);
 
       if (queue && queue.length > 0) {
-        // Обробляємо одну команду за такт.
+        // Одна команда на один такт.
         const input = queue.shift();
 
         inputs[playerId] = input;
 
-        this.lastControls.set(
-          playerId,
-          input,
-        );
-
-        // ACK відповідає команді,
-        // обраній для поточного такту.
+        // ACK оновлюється лише після вибору
+        // команди для серверної симуляції.
         this.lastProcessedSeq.set(
           playerId,
           input.seq,
         );
       } else {
         // Якщо нової команди немає,
-        // повторюємо останній стан керування.
-        const previous =
-          this.lastControls.get(playerId) ??
-          normalizeInput();
-
-        inputs[playerId] = {
-          ...previous,
-          seq: 0,
-        };
+        // використовуємо нейтральне керування.
+        // Не повторюємо старі натискання.
+        inputs[playerId] = normalizeInput();
       }
     }
 
     return inputs;
   }
 
-  broadcastSnapshot() {
-    const snapshot = createSnapshot(this.world);
+  // ========================================
+  // ПЕРЕДАВАННЯ СТАНУ ГРИ
+  // ========================================
 
-    const lastProcessedSeq = Object.fromEntries(
-      this.lastProcessedSeq,
+  broadcastSnapshot() {
+    const snapshot = createSnapshot(
+      this.world,
     );
+
+    const lastProcessedSeq =
+      Object.fromEntries(
+        this.lastProcessedSeq,
+      );
 
     this.emit('snapshot', {
       roomId: this.id,
@@ -239,8 +248,14 @@ export class Room extends EventEmitter {
     });
   }
 
+  // ========================================
+  // ВИХІД ГРАВЦЯ
+  // ========================================
+
   leave(playerId) {
-    const player = this.players.get(playerId);
+    const player = this.players.get(
+      playerId,
+    );
 
     if (!player) {
       return false;
@@ -251,9 +266,14 @@ export class Room extends EventEmitter {
     delete this.world.ships[playerId];
 
     this.inputs.delete(playerId);
-    this.lastReceivedSeq.delete(playerId);
-    this.lastControls.delete(playerId);
-    this.lastProcessedSeq.delete(playerId);
+
+    this.lastReceivedSeq.delete(
+      playerId,
+    );
+
+    this.lastProcessedSeq.delete(
+      playerId,
+    );
 
     // Видаляємо кулі гравця.
     this.world.bullets =
@@ -279,8 +299,14 @@ export class Room extends EventEmitter {
     return true;
   }
 
+  // ========================================
+  // ЧАТ КІМНАТИ
+  // ========================================
+
   chat(playerId, message) {
-    const player = this.players.get(playerId);
+    const player = this.players.get(
+      playerId,
+    );
 
     if (!player) {
       throw new Error('Player not in room');
@@ -291,7 +317,9 @@ export class Room extends EventEmitter {
       !message.trim() ||
       message.length > 500
     ) {
-      throw new Error('Invalid chat message');
+      throw new Error(
+        'Invalid chat message',
+      );
     }
 
     const payload = {
@@ -306,6 +334,10 @@ export class Room extends EventEmitter {
 
     return payload;
   }
+
+  // ========================================
+  // ДОПОМІЖНІ ВЛАСТИВОСТІ
+  // ========================================
 
   get isEmpty() {
     return this.players.size === 0;

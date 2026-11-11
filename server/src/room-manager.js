@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { Room } from './room.js';
 
+const DEFAULT_ROOM_NAME = 'Lab 5 Battle';
+
 export class RoomManager extends EventEmitter {
   constructor() {
     super();
@@ -16,6 +18,10 @@ export class RoomManager extends EventEmitter {
       );
     });
   }
+
+  // ========================================
+  // СТВОРЕННЯ КІМНАТИ
+  // ========================================
 
   createRoom(name, maxPlayers = 2) {
     if (
@@ -38,15 +44,20 @@ export class RoomManager extends EventEmitter {
       );
     }
 
+    const roomName = name.trim();
     const id = randomUUID();
 
     const room = new Room(
       id,
-      name.trim(),
+      roomName,
       maxPlayers,
     );
 
     this.rooms.set(id, room);
+
+    // ========================================
+    // ПОДІЇ ГРАВЦІВ
+    // ========================================
 
     room.on('playerJoined', (data) => {
       this.emit('playerJoined', data);
@@ -60,13 +71,27 @@ export class RoomManager extends EventEmitter {
       this.emit('chat', data);
     });
 
-    // Forward authoritative game snapshots.
     room.on('snapshot', (data) => {
       this.emit('snapshot', data);
     });
 
+    // ========================================
+    // ОБРОБКА ПОРОЖНЬОЇ КІМНАТИ
+    // ========================================
+
     room.on('empty', () => {
       room.gameLoop.stop();
+
+      // Стандартну кімнату не видаляємо.
+      if (room.name === DEFAULT_ROOM_NAME) {
+        console.log(
+          `[Rooms] Default room preserved: ${room.name}`,
+        );
+
+        return;
+      }
+
+      // Інші порожні кімнати видаляємо.
       this.rooms.delete(id);
 
       this.emit('roomDeleted', {
@@ -82,9 +107,17 @@ export class RoomManager extends EventEmitter {
     return room;
   }
 
+  // ========================================
+  // ПОШУК КІМНАТИ
+  // ========================================
+
   getRoom(id) {
     return this.rooms.get(id) ?? null;
   }
+
+  // ========================================
+  // СПИСОК КІМНАТ
+  // ========================================
 
   listRooms() {
     return [...this.rooms.values()].map(
@@ -92,11 +125,21 @@ export class RoomManager extends EventEmitter {
     );
   }
 
+  // ========================================
+  // ВИДАЛЕННЯ КІМНАТИ
+  // ========================================
+
   deleteRoom(id) {
     const room = this.rooms.get(id);
 
     if (!room) {
       return false;
+    }
+
+    if (room.name === DEFAULT_ROOM_NAME) {
+      throw new Error(
+        'Cannot delete the default room',
+      );
     }
 
     if (!room.isEmpty) {

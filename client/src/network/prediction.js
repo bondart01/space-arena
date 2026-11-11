@@ -1,11 +1,24 @@
 
 import {
   FIXED_DT,
+  WORLD_WIDTH,
+  WORLD_HEIGHT,
   integrateShip,
   normalizeInput,
 } from '@space-arena/shared';
 
 const MAX_INPUT_HISTORY = 256;
+
+// Відстань між координатами з урахуванням
+// переходу через межі ігрового поля.
+function wrappedDistance(a, b, size) {
+  const distance = Math.abs(a - b) % size;
+
+  return Math.min(
+    distance,
+    size - distance,
+  );
+}
 
 export class ClientPrediction {
   constructor() {
@@ -16,74 +29,137 @@ export class ClientPrediction {
     this.lastCorrection = 0;
   }
 
-  // Початковий стан власного корабля
-  initialize(serverShip) {
+  // Початковий авторитетний стан корабля.
+  initialize(serverShip, ack = 0) {
+    if (!serverShip) {
+      return;
+    }
+
     this.ship = { ...serverShip };
     this.pendingInputs = [];
 
-    this.lastAck = 0;
+    this.lastAck = ack;
     this.lastCorrection = 0;
   }
 
-  // Локальне передбачення одного кроку
+  // Локальне прогнозування руху корабля.
   predict(rawInput) {
-    if (!this.ship) return;
+    if (!this.ship) {
+      return;
+    }
 
     const input = normalizeInput(rawInput);
 
+    // Не обробляємо вже підтверджені команди.
+    if (
+      input.seq <= this.lastAck ||
+      this.pendingInputs.some(
+        (pending) => pending.seq === input.seq,
+      )
+    ) {
+      return;
+    }
+
     this.pendingInputs.push(input);
 
-    integrateShip(this.ship, input, FIXED_DT);
+    // Негайно змінюємо локальний стан корабля.
+    integrateShip(
+      this.ship,
+      input,
+      FIXED_DT,
+    );
 
-    if (this.pendingInputs.length > MAX_INPUT_HISTORY) {
+    // Обмежуємо історію команд.
+    if (
+      this.pendingInputs.length >
+      MAX_INPUT_HISTORY
+    ) {
       this.pendingInputs.shift();
     }
   }
 
-  // Звіряння із серверним станом
+  // Звіряння прогнозу із серверним станом.
   reconcile(serverShip, ack) {
-    if (!serverShip || !this.ship) return;
+    if (!serverShip || !this.ship) {
+      return;
+    }
 
-    // Не застосовуємо старі підтвердження
-    if (ack < this.lastAck) return;
+    // Захист від некоректних або старих ACK.
+    if (
+      !Number.isSafeInteger(ack) ||
+      ack < this.lastAck
+    ) {
+      return;
+    }
 
-    const previousX = this.ship.x;
-    const previousY = this.ship.y;
+    const previousShip = { ...this.ship };
 
-    // Відновлюємо авторитетний стан
+    // Відновлюємо авторитетний стан сервера.
     this.ship = { ...serverShip };
 
-    // Видаляємо підтверджені команди
-    this.pendingInputs = this.pendingInputs.filter(
-      (input) => input.seq > ack,
-    );
+    // Видаляємо всі підтверджені команди.
+    this.pendingInputs =
+      this.pendingInputs.filter(
+        (input) => input.seq > ack,
+      );
 
-    // Повторно застосовуємо непідтверджені
+    // Повторно застосовуємо лише команди,
+    // які сервер ще не підтвердив.
     for (const input of this.pendingInputs) {
-      integrateShip(this.ship, input, FIXED_DT);
+      integrateShip(
+        this.ship,
+        input,
+        FIXED_DT,
+      );
     }
 
     this.lastAck = ack;
 
-    // Величина корекції координат
+    // Вимірюємо величину корекції.
+    const dx = wrappedDistance(
+      this.ship.x,
+      previousShip.x,
+      WORLD_WIDTH,
+    );
+
+    const dy = wrappedDistance(
+      this.ship.y,
+      previousShip.y,
+      WORLD_HEIGHT,
+    );
+
     this.lastCorrection = Math.hypot(
-      this.ship.x - previousX,
-      this.ship.y - previousY,
+      dx,
+      dy,
     );
   }
 
-  // Поточний передбачений стан
+  // Поточний прогнозований стан корабля.
   getShip() {
     return this.ship;
   }
 
-  // Кількість команд без ACK
+  // Кількість непідтверджених команд.
   getPendingCount() {
     return this.pendingInputs.length;
   }
 
-  // Остання корекція в пікселях
+  // Остання корекція координат у пікселях.
   getCorrection() {
     return this.lastCorrection;
+  }
+
+  // Останній підтверджений номер команди.
+  getLastAck() {
+    return this.lastAck;
+  }
+
+  // Скидання стану при виході з кімнати.
+  reset() {
+    this.ship = null;
+    this.pendingInputs = [];
+
+    this.lastAck = 0;
+    this.lastCorrection = 0;
   }
 }

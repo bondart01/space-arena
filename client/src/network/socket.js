@@ -1,5 +1,7 @@
 
-/* global WebSocket, URL, window, setTimeout, clearTimeout */
+/* global WebSocket, URL, window, setTimeout, clearTimeout, TextEncoder */
+
+import { encodeInput } from '../../../shared/src/binary-protocol.js';
 
 export class GameSocket {
   constructor(url = '/ws') {
@@ -17,6 +19,12 @@ export class GameSocket {
 
     this.maxReconnectDelay = 10000;
     this.shouldReconnect = false;
+
+    // Мережева статистика.
+    this.sentBytes = 0;
+    this.receivedBytes = 0;
+    this.sentMessages = 0;
+    this.receivedMessages = 0;
   }
 
   on(type, callback) {
@@ -36,6 +44,49 @@ export class GameSocket {
       callback(data);
     }
   }
+
+  // ========================================
+  // МЕРЕЖЕВА СТАТИСТИКА
+  // ========================================
+
+  recordSent(data) {
+    if (typeof data === 'string') {
+      this.sentBytes += new TextEncoder().encode(data).byteLength;
+    } else if (data instanceof ArrayBuffer) {
+      this.sentBytes += data.byteLength;
+    }
+
+    this.sentMessages += 1;
+  }
+
+  recordReceived(data) {
+    if (typeof data === 'string') {
+      this.receivedBytes += new TextEncoder().encode(data).byteLength;
+    } else if (data instanceof ArrayBuffer) {
+      this.receivedBytes += data.byteLength;
+    }
+
+    this.receivedMessages += 1;
+  }
+
+  // ========================================
+  // НАДСИЛАННЯ ДАНИХ
+  // ========================================
+
+  sendRaw(data) {
+    if (this.socket?.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    this.socket.send(data);
+    this.recordSent(data);
+
+    return true;
+  }
+
+  // ========================================
+  // ПІДКЛЮЧЕННЯ WEBSOCKET
+  // ========================================
 
   connect() {
     if (
@@ -69,35 +120,49 @@ export class GameSocket {
       this.emit('open');
 
       if (this.joinData) {
-        socket.send(JSON.stringify(this.joinData));
+        this.sendRaw(JSON.stringify(this.joinData));
       } else {
         this.flushQueue();
       }
     });
 
+    // ========================================
+    // ОТРИМАННЯ ПОВІДОМЛЕНЬ
+    // ========================================
+
     socket.addEventListener('message', (event) => {
       if (this.socket !== socket) return;
 
+      this.recordReceived(event.data);
+
+      let message;
+
       try {
-        const message = JSON.parse(event.data);
-
-        if (message.type === 'joined') {
-          this.joined = true;
-        }
-
-        this.emit('message', message);
-        this.emit(message.type, message);
-
-        if (message.type === 'joined') {
-          this.flushQueue();
-        }
+        message = JSON.parse(event.data);
       } catch (error) {
         this.emit('error', {
-          message: 'Invalid server JSON or message handler error',
+          message: 'Invalid server JSON',
           error,
         });
+
+        return;
+      }
+
+      if (message.type === 'joined') {
+        this.joined = true;
+      }
+
+      this.emit('message', message);
+      this.emit(message.type, message);
+
+      if (message.type === 'joined') {
+        this.flushQueue();
       }
     });
+
+    // ========================================
+    // ВІДКЛЮЧЕННЯ
+    // ========================================
 
     socket.addEventListener('close', (event) => {
       if (this.socket !== socket) return;
@@ -121,6 +186,10 @@ export class GameSocket {
     });
   }
 
+  // ========================================
+  // ПІДКЛЮЧЕННЯ ДО КІМНАТИ
+  // ========================================
+
   join(roomId, name) {
     this.joined = false;
 
@@ -131,9 +200,13 @@ export class GameSocket {
     };
 
     if (this.socket?.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify(this.joinData));
+      this.sendRaw(JSON.stringify(this.joinData));
     }
   }
+
+  // ========================================
+  // JSON-ПОВІДОМЛЕННЯ
+  // ========================================
 
   send(message) {
     const data = JSON.stringify(message);
@@ -144,12 +217,47 @@ export class GameSocket {
         return;
       }
 
-      this.socket.send(data);
+      this.sendRaw(data);
       return;
     }
 
     this.enqueue(data);
   }
+
+  // ========================================
+  // BINARY INPUT
+  // ========================================
+
+  sendBinaryInput(input) {
+    if (
+      !Number.isSafeInteger(input.seq) ||
+      input.seq < 1 ||
+      input.seq > 0xffffffff
+    ) {
+      throw new RangeError(
+        'Invalid binary input sequence',
+      );
+    }
+
+    // Кодуємо команди керування в 6 байтів.
+    const buffer = encodeInput(input);
+
+    if (
+      this.socket?.readyState === WebSocket.OPEN &&
+      this.joined
+    ) {
+      this.sendRaw(buffer);
+      return true;
+    }
+
+    // Застарілі команди під час перепідключення
+    // не додаємо до черги.
+    return false;
+  }
+
+  // ========================================
+  // ЧЕРГА JSON-ПОВІДОМЛЕНЬ
+  // ========================================
 
   enqueue(data) {
     if (this.queue.length >= 100) {
@@ -165,9 +273,26 @@ export class GameSocket {
       this.socket?.readyState === WebSocket.OPEN &&
       (!this.joinData || this.joined)
     ) {
-      this.socket.send(this.queue.shift());
+      this.sendRaw(this.queue.shift());
     }
   }
+
+  // ========================================
+  // ОТРИМАННЯ МЕРЕЖЕВОЇ СТАТИСТИКИ
+  // ========================================
+
+  getNetworkStats() {
+    return {
+      sentBytes: this.sentBytes,
+      receivedBytes: this.receivedBytes,
+      sentMessages: this.sentMessages,
+      receivedMessages: this.receivedMessages,
+    };
+  }
+
+  // ========================================
+  // АВТОМАТИЧНЕ ПЕРЕПІДКЛЮЧЕННЯ
+  // ========================================
 
   scheduleReconnect() {
     if (this.reconnectTimer) return;
@@ -192,6 +317,10 @@ export class GameSocket {
       }
     }, delay);
   }
+
+  // ========================================
+  // РУЧНЕ ВІДКЛЮЧЕННЯ
+  // ========================================
 
   disconnect() {
     this.shouldReconnect = false;

@@ -1,6 +1,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
+import { decodeInput } from '../../shared/src/binary-protocol.js';
 
 const MAX_MESSAGE_SIZE = 4096;
 const MAX_MESSAGES_PER_SECOND = 120;
@@ -15,6 +16,10 @@ export function setupWebSocket(server, roomManager) {
     maxPayload: MAX_MESSAGE_SIZE,
   });
 
+  // ========================================
+  // НАДСИЛАННЯ JSON
+  // ========================================
+
   function send(socket, data) {
     if (socket.readyState !== WebSocket.OPEN) {
       return;
@@ -28,13 +33,20 @@ export function setupWebSocket(server, roomManager) {
     socket.send(JSON.stringify(data));
   }
 
+  // ========================================
+  // НАДСИЛАННЯ ВСІМ ГРАВЦЯМ
+  // ========================================
+
   function broadcast(room, data) {
     for (const player of room.players.values()) {
       send(player.socket, data);
     }
   }
 
-  // Send authoritative snapshots after each server tick.
+  // ========================================
+  // SERVER SNAPSHOTS
+  // ========================================
+
   roomManager.on('snapshot', (data) => {
     const room = roomManager.getRoom(data.roomId);
 
@@ -47,12 +59,14 @@ export function setupWebSocket(server, roomManager) {
         type: 'snapshot',
         roomId: data.roomId,
         snapshot: data.snapshot,
-
-        // Each client receives its own acknowledged seq.
         ack: data.lastProcessedSeq[player.id] ?? 0,
       });
     }
   });
+
+  // ========================================
+  // НОВЕ ПІДКЛЮЧЕННЯ
+  // ========================================
 
   wss.on('connection', (socket) => {
     const playerId = randomUUID();
@@ -74,6 +88,10 @@ export function setupWebSocket(server, roomManager) {
       missedPongs = 0;
     });
 
+    // ========================================
+    // ОБРОБКА ПОВІДОМЛЕНЬ
+    // ========================================
+
     socket.on('message', (raw, isBinary) => {
       const now = Date.now();
 
@@ -89,19 +107,38 @@ export function setupWebSocket(server, roomManager) {
         return;
       }
 
-      // Binary packets will be added in milestone M4.
-      if (isBinary) {
-        socket.close(1003, 'Binary protocol not enabled');
-        return;
-      }
-
       let message;
 
-      try {
-        message = JSON.parse(raw.toString());
-      } catch {
-        socket.close(1007, 'Invalid JSON');
-        return;
+      // ====================================
+      // BINARY АБО JSON
+      // ====================================
+
+      if (isBinary) {
+        try {
+          // Buffer від бібліотеки ws перетворюємо
+          // на ArrayBuffer точної довжини.
+          const binary = raw.buffer.slice(
+            raw.byteOffset,
+            raw.byteOffset + raw.byteLength,
+          );
+
+          message = decodeInput(binary);
+        } catch (error) {
+          console.error(
+            '[WS] Invalid binary input:',
+            error.message,
+          );
+
+          socket.close(1003, 'Invalid binary message');
+          return;
+        }
+      } else {
+        try {
+          message = JSON.parse(raw.toString());
+        } catch {
+          socket.close(1007, 'Invalid JSON');
+          return;
+        }
       }
 
       if (
@@ -114,7 +151,36 @@ export function setupWebSocket(server, roomManager) {
         return;
       }
 
+      // ====================================
+      // ТИПИ ПОВІДОМЛЕНЬ
+      // ====================================
+
       switch (message.type) {
+        // ----------------------------------
+        // PING / PONG
+        // ----------------------------------
+
+        case 'ping': {
+          if (
+            !Number.isSafeInteger(message.id) ||
+            message.id < 0
+          ) {
+            socket.close(1008, 'Invalid ping');
+            return;
+          }
+
+          send(socket, {
+            type: 'pong',
+            id: message.id,
+          });
+
+          break;
+        }
+
+        // ----------------------------------
+        // JOIN
+        // ----------------------------------
+
         case 'join': {
           if (currentRoom) {
             socket.close(1008, 'Already joined');
@@ -139,7 +205,11 @@ export function setupWebSocket(server, roomManager) {
           }
 
           try {
-            room.join(playerId, message.name, socket);
+            room.join(
+              playerId,
+              message.name,
+              socket,
+            );
           } catch {
             socket.close(1008, 'Cannot join room');
             return;
@@ -165,16 +235,20 @@ export function setupWebSocket(server, roomManager) {
           break;
         }
 
+        // ----------------------------------
+        // INPUT (JSON + BINARY)
+        // ----------------------------------
+
         case 'input': {
           if (!currentRoom) {
             socket.close(1008, 'Join required');
             return;
           }
 
-          // The client may send controls, but never position.
           if (
             !Number.isSafeInteger(message.seq) ||
             message.seq < 1 ||
+            message.seq > 0xffffffff ||
             typeof message.thrust !== 'boolean' ||
             typeof message.left !== 'boolean' ||
             typeof message.right !== 'boolean' ||
@@ -199,6 +273,10 @@ export function setupWebSocket(server, roomManager) {
           break;
         }
 
+        // ----------------------------------
+        // CHAT
+        // ----------------------------------
+
         case 'chat': {
           if (!currentRoom) {
             socket.close(1008, 'Join required');
@@ -222,6 +300,10 @@ export function setupWebSocket(server, roomManager) {
           break;
         }
 
+        // ----------------------------------
+        // LEAVE
+        // ----------------------------------
+
         case 'leave': {
           if (!currentRoom) {
             socket.close(1008, 'Not in room');
@@ -236,6 +318,10 @@ export function setupWebSocket(server, roomManager) {
           socket.close(1008, 'Unknown message type');
       }
     });
+
+    // ========================================
+    // ВІДКЛЮЧЕННЯ
+    // ========================================
 
     socket.on('close', () => {
       clearTimeout(joinTimer);
@@ -258,10 +344,16 @@ export function setupWebSocket(server, roomManager) {
     });
 
     socket.on('error', (error) => {
-      console.error('[WS] Socket error:', error.message);
+      console.error(
+        '[WS] Socket error:',
+        error.message,
+      );
     });
 
-    // Heartbeat is separate from the game simulation.
+    // ========================================
+    // HEARTBEAT
+    // ========================================
+
     const heartbeat = setInterval(() => {
       if (socket.readyState !== WebSocket.OPEN) {
         return;
@@ -283,7 +375,10 @@ export function setupWebSocket(server, roomManager) {
   });
 
   wss.on('error', (error) => {
-    console.error('[WS] Server error:', error.message);
+    console.error(
+      '[WS] Server error:',
+      error.message,
+    );
   });
 
   return wss;

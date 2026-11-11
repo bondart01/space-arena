@@ -23,13 +23,12 @@ const clientDist = path.resolve(
 );
 
 // ========================================
-// МЕНЕДЖЕР КІМНАТ ТА ЛОГУВАННЯ
+// МЕНЕДЖЕР КІМНАТ ТА ЖУРНАЛЮВАННЯ
 // ========================================
 
 const roomManager = new RoomManager();
 const matchLogger = new MatchLogger(config.logDir);
 
-// Події, які записуються у журнал матчів.
 const loggedEvents = [
   'roomCreated',
   'roomDeleted',
@@ -52,16 +51,33 @@ for (const eventType of loggedEvents) {
 // ========================================
 
 const DEFAULT_ROOM_NAME = 'Lab 5 Battle';
-const DEFAULT_MAX_PLAYERS = 2;
+const DEFAULT_ROOM_MAX_PLAYERS = 2;
 
-const defaultRoom = roomManager.createRoom(
-  DEFAULT_ROOM_NAME,
-  DEFAULT_MAX_PLAYERS,
-);
+function ensureDefaultRoom() {
+  const existingRoom = roomManager
+    .listRooms()
+    .find(
+      (room) => room.name === DEFAULT_ROOM_NAME,
+    );
 
-console.log(
-  `[Rooms] Default room created: ${defaultRoom.name}`,
-);
+  if (existingRoom) {
+    console.log(
+      `[Rooms] Default room already exists: ${existingRoom.name}`,
+    );
+    return;
+  }
+
+  const room = roomManager.createRoom(
+    DEFAULT_ROOM_NAME,
+    DEFAULT_ROOM_MAX_PLAYERS,
+  );
+
+  console.log(
+    `[Rooms] Default room created: ${room.name}`,
+  );
+}
+
+ensureDefaultRoom();
 
 // ========================================
 // MIME-ТИПИ СТАТИЧНИХ ФАЙЛІВ
@@ -209,7 +225,6 @@ async function serveStatic(req, res, pathname) {
       return;
     }
 
-    // Захист від виходу за межі client/dist.
     const realDist =
       await fs.promises.realpath(clientDist);
 
@@ -319,7 +334,7 @@ const server = http.createServer(
     }
 
     // ------------------------------------
-    // ОТРИМАННЯ СПИСКУ КІМНАТ
+    // СПИСОК КІМНАТ
     // ------------------------------------
 
     if (
@@ -341,26 +356,29 @@ const server = http.createServer(
       url.pathname === '/api/rooms'
     ) {
       try {
-        const body =
-          await readJsonBody(req);
+        const body = await readJsonBody(req);
+
+        const name = body.name;
+        const maxPlayers = body.maxPlayers ?? 2;
 
         if (
-          body === null ||
-          typeof body !== 'object' ||
-          Array.isArray(body)
+          typeof name !== 'string' ||
+          !name.trim() ||
+          name.length > 50 ||
+          !Number.isInteger(maxPlayers) ||
+          maxPlayers < 1 ||
+          maxPlayers > 16
         ) {
           sendJson(res, 400, {
-            error:
-              'Request body must be an object',
+            error: 'Invalid room configuration',
           });
           return;
         }
 
-        const room =
-          roomManager.createRoom(
-            body.name,
-            body.maxPlayers ?? 8,
-          );
+        const room = roomManager.createRoom(
+          name.trim(),
+          maxPlayers,
+        );
 
         sendJson(res, 201, {
           room: room.toJSON(),
@@ -379,37 +397,7 @@ const server = http.createServer(
     }
 
     // ------------------------------------
-    // НЕВІДОМІ API-МАРШРУТИ
-    // ------------------------------------
-
-    if (
-      url.pathname === '/api' ||
-      url.pathname.startsWith('/api/')
-    ) {
-      if (
-        req.method === 'GET' ||
-        req.method === 'HEAD'
-      ) {
-        if (
-          url.pathname.endsWith('.json')
-        ) {
-          await serveStatic(
-            req,
-            res,
-            url.pathname,
-          );
-          return;
-        }
-      }
-
-      sendJson(res, 404, {
-        error: 'API route not found',
-      });
-      return;
-    }
-
-    // ------------------------------------
-    // ІНТЕРФЕЙС SPACE ARENA
+    // СТАТИЧНІ ФАЙЛИ SPACE ARENA
     // ------------------------------------
 
     await serveStatic(
@@ -478,61 +466,19 @@ server.listen(
 // КОРЕКТНЕ ЗАВЕРШЕННЯ РОБОТИ
 // ========================================
 
-let shuttingDown = false;
-
-async function shutdown(signal) {
-  if (shuttingDown) {
-    return;
-  }
-
-  shuttingDown = true;
-
+function shutdown() {
   console.log(
-    `\nReceived ${signal}. Shutting down...`,
+    '[Server] Shutting down...',
   );
 
-  const httpClosed = new Promise(
-    (resolve) => {
-      server.close((error) => {
-        if (error) {
-          console.error(
-            '[HTTP] Close error:',
-            error.message,
-          );
-        }
+  wss.close();
 
-        resolve();
-      });
-    },
-  );
-
-  for (const socket of wss.clients) {
-    socket.terminate();
-  }
-
-  try {
-    await httpClosed;
-    await matchLogger.close();
-
+  server.close(() => {
     console.log(
-      'Match logs saved successfully',
+      '[Server] HTTP server closed',
     );
-
-    process.exitCode = 0;
-  } catch (error) {
-    console.error(
-      'Shutdown error:',
-      error,
-    );
-
-    process.exitCode = 1;
-  }
+  });
 }
 
-process.on('SIGINT', () => {
-  void shutdown('SIGINT');
-});
-
-process.on('SIGTERM', () => {
-  void shutdown('SIGTERM');
-});
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
