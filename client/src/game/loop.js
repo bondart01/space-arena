@@ -1,12 +1,19 @@
-const STEP = 1 / 60;
+
+import { FIXED_DT } from '@space-arena/shared';
+
+const STEP = FIXED_DT;
 const MAX_FRAME_TIME = 0.25;
 
-// Експеримент №3
-// true — змінний часовий крок
-// false — фіксований часовий крок
+// Лабораторна №5:
+// клієнтська симуляція працює з частотою 30 Гц,
+// як і серверна.
 const VARIABLE_TIMESTEP = false;
 
-export function createLoop({ update, render, onStats = () => {} }) {
+export function createLoop({
+  update,
+  render,
+  onStats = () => {},
+}) {
   let running = false;
   let previousTime = 0;
   let accumulator = 0;
@@ -19,17 +26,18 @@ export function createLoop({ update, render, onStats = () => {} }) {
   function frame(timestamp) {
     if (!running) return;
 
-    const deltaTime = Math.min(Math.max((timestamp - previousTime) / 1000, 0), MAX_FRAME_TIME);
+    const deltaTime = Math.min(
+      Math.max((timestamp - previousTime) / 1000, 0),
+      MAX_FRAME_TIME,
+    );
 
     previousTime = timestamp;
 
     if (VARIABLE_TIMESTEP) {
-      // Один крок фізики з реальною тривалістю кадру
       update(deltaTime);
       steps++;
       render(1);
     } else {
-      // Фіксований крок симуляції 60 Гц
       accumulator += deltaTime;
 
       while (accumulator >= STEP) {
@@ -65,6 +73,7 @@ export function createLoop({ update, render, onStats = () => {} }) {
     running = true;
     previousTime = performance.now();
     accumulator = 0;
+
     frames = 0;
     steps = 0;
     statsTime = 0;

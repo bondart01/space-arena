@@ -1,28 +1,47 @@
+
 <!doctype html>
 <html lang="uk">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Space Arena</title>
+
+    <link rel="stylesheet" href="/src/style.css" />
   </head>
+
   <body>
     <div id="app">
       <header>
         <h1>SPACE ARENA</h1>
-        <p>Лабораторна робота №1 — Game Loop</p>
+        <p>Лабораторна робота №5 — Real-Time Networking</p>
       </header>
 
-      <div class="game-container">
-        <canvas id="gameCanvas"></canvas>
+      <canvas
+        id="gameCanvas"
+        width="960"
+        height="540"
+      ></canvas>
 
-        <div id="hud">
-          <span>FPS: <strong id="fps">0</strong></span>
-          <span>Steps/s: <strong id="sps">0</strong></span>
-          <span>Frame: <strong id="frameTime">0</strong> ms</span>
-        </div>
+      <div id="hud">
+        <span>
+          FPS: <strong id="fps">0</strong>
+        </span>
+
+        <span>
+          Steps/s: <strong id="sps">0</strong>
+        </span>
+
+        <span>
+          Frame: <strong id="frameTime">0</strong> ms
+        </span>
       </div>
 
-      <p class="controls">Керування: W / ↑ — прискорення, A / ← — ліворуч, D / → — праворуч</p>
+      <p class="controls">
+        Керування:
+        W / ↑ — прискорення,
+        A / ← — ліворуч,
+        D / → — праворуч
+      </p>
     </div>
 
     <script type="module" src="/src/main.js"></script>

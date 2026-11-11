@@ -17,24 +17,24 @@ export class RoomManager extends EventEmitter {
     });
   }
 
-  createRoom(name, maxPlayers = 8) {
+  createRoom(name, maxPlayers = 2) {
     if (
       typeof name !== 'string' ||
       !name.trim() ||
       name.trim().length > 50
     ) {
       throw new Error(
-        'Room name must contain 1–50 characters',
+        'Room name must contain 1-50 characters',
       );
     }
 
     if (
       !Number.isInteger(maxPlayers) ||
       maxPlayers < 1 ||
-      maxPlayers > 32
+      maxPlayers > 2
     ) {
       throw new Error(
-        'maxPlayers must be between 1 and 32',
+        'maxPlayers must be between 1 and 2',
       );
     }
 
@@ -60,7 +60,13 @@ export class RoomManager extends EventEmitter {
       this.emit('chat', data);
     });
 
+    // Forward authoritative game snapshots.
+    room.on('snapshot', (data) => {
+      this.emit('snapshot', data);
+    });
+
     room.on('empty', () => {
+      room.gameLoop.stop();
       this.rooms.delete(id);
 
       this.emit('roomDeleted', {
@@ -99,6 +105,7 @@ export class RoomManager extends EventEmitter {
       );
     }
 
+    room.gameLoop.stop();
     this.rooms.delete(id);
 
     this.emit('roomDeleted', {

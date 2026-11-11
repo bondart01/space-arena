@@ -3,9 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 
 const MAX_MESSAGE_SIZE = 4096;
-const MAX_MESSAGES_PER_SECOND = 10;
+const MAX_MESSAGES_PER_SECOND = 120;
 const JOIN_TIMEOUT_MS = 5000;
 const HEARTBEAT_MS = 15000;
+const MAX_BUFFERED_BYTES = 1024 * 1024;
 
 export function setupWebSocket(server, roomManager) {
   const wss = new WebSocketServer({
@@ -19,7 +20,7 @@ export function setupWebSocket(server, roomManager) {
       return;
     }
 
-    if (socket.bufferedAmount > 1024 * 1024) {
+    if (socket.bufferedAmount > MAX_BUFFERED_BYTES) {
       socket.close(1013, 'Client too slow');
       return;
     }
@@ -32,6 +33,26 @@ export function setupWebSocket(server, roomManager) {
       send(player.socket, data);
     }
   }
+
+  // Send authoritative snapshots after each server tick.
+  roomManager.on('snapshot', (data) => {
+    const room = roomManager.getRoom(data.roomId);
+
+    if (!room) {
+      return;
+    }
+
+    for (const player of room.players.values()) {
+      send(player.socket, {
+        type: 'snapshot',
+        roomId: data.roomId,
+        snapshot: data.snapshot,
+
+        // Each client receives its own acknowledged seq.
+        ack: data.lastProcessedSeq[player.id] ?? 0,
+      });
+    }
+  });
 
   wss.on('connection', (socket) => {
     const playerId = randomUUID();
@@ -53,7 +74,7 @@ export function setupWebSocket(server, roomManager) {
       missedPongs = 0;
     });
 
-    socket.on('message', (raw) => {
+    socket.on('message', (raw, isBinary) => {
       const now = Date.now();
 
       if (now - rateWindowStart >= 1000) {
@@ -65,6 +86,12 @@ export function setupWebSocket(server, roomManager) {
 
       if (messageCount > MAX_MESSAGES_PER_SECOND) {
         socket.close(1008, 'Rate limit exceeded');
+        return;
+      }
+
+      // Binary packets will be added in milestone M4.
+      if (isBinary) {
+        socket.close(1003, 'Binary protocol not enabled');
         return;
       }
 
@@ -125,6 +152,8 @@ export function setupWebSocket(server, roomManager) {
             type: 'joined',
             playerId,
             room: room.toJSON(),
+            seed: room.seed,
+            tickRate: 30,
           });
 
           broadcast(room, {
@@ -132,6 +161,40 @@ export function setupWebSocket(server, roomManager) {
             playerId,
             name: message.name.trim(),
           });
+
+          break;
+        }
+
+        case 'input': {
+          if (!currentRoom) {
+            socket.close(1008, 'Join required');
+            return;
+          }
+
+          // The client may send controls, but never position.
+          if (
+            !Number.isSafeInteger(message.seq) ||
+            message.seq < 1 ||
+            typeof message.thrust !== 'boolean' ||
+            typeof message.left !== 'boolean' ||
+            typeof message.right !== 'boolean' ||
+            typeof message.shoot !== 'boolean'
+          ) {
+            socket.close(1008, 'Invalid input');
+            return;
+          }
+
+          try {
+            currentRoom.receiveInput(playerId, {
+              seq: message.seq,
+              thrust: message.thrust,
+              left: message.left,
+              right: message.right,
+              shoot: message.shoot,
+            });
+          } catch {
+            socket.close(1008, 'Invalid input sequence');
+          }
 
           break;
         }
@@ -179,6 +242,8 @@ export function setupWebSocket(server, roomManager) {
 
       if (currentRoom) {
         const room = currentRoom;
+        currentRoom = null;
+
         room.leave(playerId);
 
         if (!room.isEmpty) {
@@ -196,6 +261,7 @@ export function setupWebSocket(server, roomManager) {
       console.error('[WS] Socket error:', error.message);
     });
 
+    // Heartbeat is separate from the game simulation.
     const heartbeat = setInterval(() => {
       if (socket.readyState !== WebSocket.OPEN) {
         return;

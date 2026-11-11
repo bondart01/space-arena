@@ -1,28 +1,31 @@
-
-/* global document, window, performance, AbortController, console */
-
-import './style.css';
-
-import { createLoop } from './game/loop.js';
-import { gameEvents } from './events/game-events.js';
-import { createInput } from './game/input.js';
+﻿
 import { createRenderer } from './game/render.js';
 import { createLoadingScreen } from './game/loading.js';
-
-import { fetchJson, loadAll } from './async/loader.js';
-import { withRetry } from './async/retry.js';
-
 import { GameAudio } from './audio/audio.js';
+import { gameEvents } from './events/game-events.js';
+
 import { Lobby } from './lobby/lobby.js';
 import { createLobbyUI } from './lobby/lobby-ui.js';
 
-import { Vector2 } from './sim/vector.js';
-import { Ship } from './sim/ship.js';
-import { Bullet } from './sim/bullet.js';
-import { Asteroid } from './sim/asteroid.js';
-import { World } from './sim/world.js';
-import { Pickup } from './sim/pickup.js';
-import { Homing } from './sim/homing.js';
+import { createInput } from './game/input.js';
+import { createLoop } from './game/loop.js';
+
+import { GameSocket } from './network/socket.js';
+import { createNetworkRenderer } from './game/network-render.js';
+
+import { withRetry } from './async/retry.js';
+import { fetchJson, loadAll } from './async/loader.js';
+
+
+
+// ========================================
+// ЛАБОРАТОРНА №5
+// ЕМУЛЯЦІЯ МЕРЕЖЕВОЇ ЗАТРИМКИ
+// ========================================
+
+// Штучна затримка отримання snapshot.
+// Поки що Client-Side Prediction вимкнений.
+const NETWORK_DELAY_MS = 100;
 
 // ========================================
 // ОСНОВНІ ЕЛЕМЕНТИ
@@ -50,17 +53,14 @@ let loadedAssets = new Map();
 // СИСТЕМА ІГРОВИХ ПОДІЙ
 // ========================================
 
-// Подія пострілу
 gameEvents.on('fired', () => {
   gameAudio.play('shoot');
 });
 
-// Подія влучання
 gameEvents.on('hit', () => {
   gameAudio.play('hit');
 });
 
-// Подія вибуху
 gameEvents.on('exploded', () => {
   gameAudio.play('explosion');
 });
@@ -116,15 +116,15 @@ hpElement.insertAdjacentElement('afterend', scoreElement);
 // ========================================
 
 const lobby = new Lobby({
-  roomsUrl: '/api/rooms.json',
-  refreshInterval: 5000,
+  roomsUrl: '/api/rooms',
+  refreshInterval: 2000,
   requestTimeout: 3000,
 });
 
 const lobbyUI = createLobbyUI(lobby, canvas);
 
 // ========================================
-// ЗАПУСК ГРИ
+// ЗАПУСК МЕРЕЖЕВОЇ ГРИ
 // ========================================
 
 function startGame(room, playerName) {
@@ -137,159 +137,110 @@ function startGame(room, playerName) {
   hpElement.style.display = 'block';
   scoreElement.style.display = 'block';
 
-  console.log('Player:', playerName);
-  console.log('Room:', room);
-
   const input = createInput();
-  const world = new World();
+  const socket = new GameSocket('/ws');
+  const networkRenderer = createNetworkRenderer(canvas);
 
   activeInput = input;
 
-  const ship = world.spawn(
-    new Ship({
-      position: new Vector2(
-        renderer.width / 2,
-        renderer.height / 2,
-      ),
-    }),
-  );
+  let playerId = null;
+  let snapshot = null;
 
-  // Створення звичайних астероїдів
-  for (let i = 0; i < 7; i++) {
-    const angle = Math.random() * Math.PI * 2;
+  let seq = 0;
+  let lastAck = 0;
 
-    world.spawn(
-      new Asteroid({
-        position: new Vector2(
-          Math.random() * renderer.width,
-          Math.random() * renderer.height,
-        ),
-        velocity: Vector2.fromAngle(angle).scale(
-          20 + Math.random() * 40,
-        ),
-        radius: 20 + Math.random() * 15,
-      }),
+  // ========================================
+  // WEBSOCKET
+  // ========================================
+
+  socket.on('open', () => {
+    console.log('WebSocket connected');
+  });
+
+  socket.on('joined', (message) => {
+    playerId = message.playerId;
+
+    seq = 0;
+    lastAck = 0;
+    snapshot = null;
+
+    console.log('Joined room:', room.name);
+    console.log('Player ID:', playerId);
+    console.log(
+      'Simulated snapshot delay:',
+      NETWORK_DELAY_MS,
+      'ms',
     );
-  }
-
-  // Астероїд із самонаведенням
-  world.spawn(
-    new Asteroid({
-      position: new Vector2(100, 100),
-      velocity: new Vector2(30, 0),
-      radius: 23,
-      homing: new Homing({
-        targetId: ship.id,
-        strength: 45,
-        maxSpeed: 90,
-      }),
-    }),
-  );
-
-  // Бонуси відновлення здоров'я
-  world.spawn(
-    new Pickup({
-      position: new Vector2(200, 270),
-      healAmount: 30,
-    }),
-  );
-
-  world.spawn(
-    new Pickup({
-      position: new Vector2(760, 270),
-      healAmount: 30,
-    }),
-  );
-
-  let previousFire = false;
-  let respawnTimer = 0;
+  });
 
   // ========================================
-  // ОНОВЛЕННЯ ІГРОВОГО СВІТУ
+  // ЗАТРИМКА СЕРВЕРНИХ SNAPSHOT
   // ========================================
 
-  function update(dt) {
+  socket.on('snapshot', (message) => {
+    setTimeout(() => {
+      if (!socket.joined) return;
+
+      snapshot = message.snapshot;
+      lastAck = message.ack;
+    }, NETWORK_DELAY_MS);
+  });
+
+  socket.on('error', (error) => {
+    console.error('Network error:', error);
+  });
+
+  socket.on('close', () => {
+    console.log('WebSocket disconnected');
+  });
+
+  socket.join(room.id, playerName);
+  socket.connect();
+
+  // ========================================
+  // НАДСИЛАННЯ INPUT
+  // ========================================
+
+  function update() {
+    if (!socket.joined) return;
+
     const controls = input.getState();
 
-    world.input = controls;
+    seq += 1;
 
-    // Постріл
-    if (
-      ship.alive &&
-      controls.fire &&
-      !previousFire
-    ) {
-      const bulletData = ship.fire();
+    socket.send({
+      type: 'input',
+      seq,
+      thrust: controls.thrust,
+      left: controls.left,
+      right: controls.right,
+      shoot: controls.fire,
+    });
 
-      if (bulletData) {
-        const bullet = world.spawn(
-          new Bullet(bulletData),
-        );
+    hpElement.textContent =
+      `Server tick: ${snapshot?.tick ?? 0} | ` +
+      `Delay: ${NETWORK_DELAY_MS} ms`;
 
-        // Генеруємо подію замість
-        // прямого виклику аудіосистеми
-        gameEvents.emit('fired', {
-          shipId: ship.id,
-          bulletId: bullet.id,
-        });
-      }
-    }
-
-    previousFire = controls.fire;
-
-    // Оновлення фізики та зіткнень
-    world.step(dt);
-
-    // Відродження корабля
-    if (!ship.alive) {
-      respawnTimer += dt;
-
-      if (respawnTimer >= 2) {
-        ship.respawn(
-          new Vector2(
-            renderer.width / 2,
-            renderer.height / 2,
-          ),
-        );
-
-        world.spawn(ship);
-        respawnTimer = 0;
-      }
-    } else {
-      respawnTimer = 0;
-    }
-
-    // Перехід через межі екрана
-    for (const entity of world) {
-      entity.position.x =
-        ((entity.position.x % renderer.width) +
-          renderer.width) %
-        renderer.width;
-
-      entity.position.y =
-        ((entity.position.y % renderer.height) +
-          renderer.height) %
-        renderer.height;
-    }
-
-    // Оновлення HUD
-    hpElement.textContent = `HP: ${ship.hp}`;
-    scoreElement.textContent = `Score: ${ship.score}`;
+    scoreElement.textContent =
+      `Input seq: ${seq} | ACK: ${lastAck}`;
   }
 
   // ========================================
-  // ВІДОБРАЖЕННЯ
+  // ВІДОБРАЖЕННЯ СЕРВЕРНОГО СТАНУ
   // ========================================
 
   function render() {
-    renderer.render(world);
+    networkRenderer.render(snapshot, playerId);
   }
+
+  // ========================================
+  // СТАТИСТИКА
+  // ========================================
 
   function onStats({ fps, sps, frameTime }) {
     fpsElement.textContent = fps.toFixed(1);
     spsElement.textContent = sps.toFixed(1);
-    frameTimeElement.textContent =
-      frameTime.toFixed(2);
+    frameTimeElement.textContent = frameTime.toFixed(2);
   }
 
   activeLoop = createLoop({
@@ -299,6 +250,12 @@ function startGame(room, playerName) {
   });
 
   activeLoop.start();
+
+  window.addEventListener(
+    'pagehide',
+    () => socket.disconnect(),
+    { once: true },
+  );
 }
 
 // ========================================
@@ -349,7 +306,6 @@ async function initialize() {
       },
     );
 
-    // Завантаження зображень та JSON
     const visualManifest = {
       ...manifest,
       assets: manifest.assets.filter(
@@ -374,7 +330,6 @@ async function initialize() {
       'ms',
     );
 
-    // Очікування дії користувача
     audioButton.style.display = 'block';
   } catch (error) {
     if (controller.signal.aborted) return;
@@ -402,7 +357,6 @@ async function enableAudioAndContinue() {
   loadingController = controller;
 
   try {
-    // AudioContext створюється після кліку
     const audioContext = await gameAudio.initialize();
 
     const audioManifest = {
@@ -437,7 +391,6 @@ async function enableAudioAndContinue() {
     console.log('Audio resources loaded:', audioAssets);
     console.log('Total resources:', loadedAssets.size);
 
-    // Усі ресурси готові — відкриваємо Lobby
     canvas.style.display = 'none';
     lobbyUI.show();
   } catch (error) {

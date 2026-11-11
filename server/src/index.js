@@ -10,15 +10,26 @@ import { RoomManager } from './room-manager.js';
 import { setupWebSocket } from './websocket.js';
 import { MatchLogger } from './match-logger.js';
 
-// Absolute path to the built client
+// ========================================
+// ШЛЯХ ДО ЗІБРАНОГО КЛІЄНТА
+// ========================================
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const clientDist = path.resolve(__dirname, '../../client/dist');
+
+const clientDist = path.resolve(
+  __dirname,
+  '../../client/dist',
+);
+
+// ========================================
+// МЕНЕДЖЕР КІМНАТ ТА ЛОГУВАННЯ
+// ========================================
 
 const roomManager = new RoomManager();
 const matchLogger = new MatchLogger(config.logDir);
 
-// Match events saved as NDJSON
+// Події, які записуються у журнал матчів.
 const loggedEvents = [
   'roomCreated',
   'roomDeleted',
@@ -36,7 +47,26 @@ for (const eventType of loggedEvents) {
   });
 }
 
-// MIME types for static resources
+// ========================================
+// АВТОМАТИЧНЕ СТВОРЕННЯ КІМНАТИ
+// ========================================
+
+const DEFAULT_ROOM_NAME = 'Lab 5 Battle';
+const DEFAULT_MAX_PLAYERS = 2;
+
+const defaultRoom = roomManager.createRoom(
+  DEFAULT_ROOM_NAME,
+  DEFAULT_MAX_PLAYERS,
+);
+
+console.log(
+  `[Rooms] Default room created: ${defaultRoom.name}`,
+);
+
+// ========================================
+// MIME-ТИПИ СТАТИЧНИХ ФАЙЛІВ
+// ========================================
+
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -56,7 +86,10 @@ const mimeTypes = {
   '.woff2': 'font/woff2',
 };
 
-// Send a JSON response
+// ========================================
+// JSON-ВІДПОВІДІ
+// ========================================
+
 function sendJson(res, statusCode, data) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -66,7 +99,10 @@ function sendJson(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
-// Read a JSON request body with a size limit
+// ========================================
+// ЧИТАННЯ JSON ІЗ ЗАПИТУ
+// ========================================
+
 async function readJsonBody(req) {
   const chunks = [];
   let size = 0;
@@ -75,7 +111,10 @@ async function readJsonBody(req) {
     size += chunk.length;
 
     if (size > 16 * 1024) {
-      const error = new Error('Request body is too large');
+      const error = new Error(
+        'Request body is too large',
+      );
+
       error.statusCode = 413;
       throw error;
     }
@@ -94,9 +133,15 @@ async function readJsonBody(req) {
   }
 }
 
-// Safely serve a file from client/dist
+// ========================================
+// РОЗДАЧА СТАТИЧНИХ ФАЙЛІВ КЛІЄНТА
+// ========================================
+
 async function serveStatic(req, res, pathname) {
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
+  if (
+    req.method !== 'GET' &&
+    req.method !== 'HEAD'
+  ) {
     sendJson(res, 405, {
       error: 'Method Not Allowed',
     });
@@ -114,7 +159,7 @@ async function serveStatic(req, res, pathname) {
     return;
   }
 
-  // Reject path traversal and Windows-style separators
+  // Захист від небезпечних шляхів.
   const segments = decodedPath.split('/');
 
   if (
@@ -139,8 +184,10 @@ async function serveStatic(req, res, pathname) {
     `.${requestedPath}`,
   );
 
-  // Ensure the resolved file remains inside client/dist
-  const relative = path.relative(clientDist, filePath);
+  const relative = path.relative(
+    clientDist,
+    filePath,
+  );
 
   if (
     relative.startsWith('..') ||
@@ -162,10 +209,17 @@ async function serveStatic(req, res, pathname) {
       return;
     }
 
-    // Prevent symlink-based escapes from client/dist
-    const realDist = await fs.promises.realpath(clientDist);
-    const realFile = await fs.promises.realpath(filePath);
-    const realRelative = path.relative(realDist, realFile);
+    // Захист від виходу за межі client/dist.
+    const realDist =
+      await fs.promises.realpath(clientDist);
+
+    const realFile =
+      await fs.promises.realpath(filePath);
+
+    const realRelative = path.relative(
+      realDist,
+      realFile,
+    );
 
     if (
       realRelative.startsWith('..') ||
@@ -177,11 +231,14 @@ async function serveStatic(req, res, pathname) {
       return;
     }
 
-    const extension = path.extname(filePath).toLowerCase();
+    const extension = path
+      .extname(filePath)
+      .toLowerCase();
 
     res.writeHead(200, {
       'Content-Type':
-        mimeTypes[extension] ?? 'application/octet-stream',
+        mimeTypes[extension] ??
+        'application/octet-stream',
       'Content-Length': stats.size,
       'X-Content-Type-Options': 'nosniff',
     });
@@ -196,7 +253,10 @@ async function serveStatic(req, res, pathname) {
       res,
     );
   } catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') {
+    if (
+      error.code === 'ENOENT' ||
+      error.code === 'ENOTDIR'
+    ) {
       if (!res.headersSent) {
         sendJson(res, 404, {
           error: 'File not found',
@@ -205,7 +265,10 @@ async function serveStatic(req, res, pathname) {
       return;
     }
 
-    console.error('[Static] Error:', error.message);
+    console.error(
+      '[Static] Error:',
+      error.message,
+    );
 
     if (!res.headersSent) {
       sendJson(res, 500, {
@@ -217,135 +280,231 @@ async function serveStatic(req, res, pathname) {
   }
 }
 
-// HTTP server
-const server = http.createServer(async (req, res) => {
-  let url;
+// ========================================
+// HTTP-СЕРВЕР
+// ========================================
 
-  try {
-    url = new URL(req.url, 'http://localhost');
-  } catch {
-    sendJson(res, 400, {
-      error: 'Invalid URL',
-    });
-    return;
-  }
+const server = http.createServer(
+  async (req, res) => {
+    let url;
 
-  // Health check
-  if (
-    req.method === 'GET' &&
-    url.pathname === '/health'
-  ) {
-    sendJson(res, 200, {
-      status: 'ok',
-      service: 'space-arena-server',
-      uptime: Math.round(process.uptime()),
-    });
-    return;
-  }
-
-  // List rooms
-  if (
-    req.method === 'GET' &&
-    url.pathname === '/api/rooms'
-  ) {
-    sendJson(res, 200, {
-      rooms: roomManager.listRooms(),
-    });
-    return;
-  }
-
-  // Create a room
-  if (
-    req.method === 'POST' &&
-    url.pathname === '/api/rooms'
-  ) {
     try {
-      const body = await readJsonBody(req);
-
-      if (
-        body === null ||
-        typeof body !== 'object' ||
-        Array.isArray(body)
-      ) {
-        sendJson(res, 400, {
-          error: 'Request body must be an object',
-        });
-        return;
-      }
-
-      const room = roomManager.createRoom(
-        body.name,
-        body.maxPlayers ?? 8,
+      url = new URL(
+        req.url,
+        'http://localhost',
       );
-
-      sendJson(res, 201, {
-        room: room.toJSON(),
+    } catch {
+      sendJson(res, 400, {
+        error: 'Invalid URL',
       });
-    } catch (error) {
-      sendJson(res, error.statusCode ?? 400, {
-        error: error.message,
-      });
+      return;
     }
-    return;
-  }
 
-  // Unknown API routes must not return static files
-  if (
-    url.pathname === '/api' ||
-    url.pathname.startsWith('/api/')
-  ) {
-    if (req.method === 'GET' || req.method === 'HEAD') {
-      // Allow client assets such as /api/rooms.json
-      if (url.pathname.endsWith('.json')) {
-        await serveStatic(req, res, url.pathname);
-        return;
+    // ------------------------------------
+    // ПЕРЕВІРКА СТАНУ СЕРВЕРА
+    // ------------------------------------
+
+    if (
+      req.method === 'GET' &&
+      url.pathname === '/health'
+    ) {
+      sendJson(res, 200, {
+        status: 'ok',
+        service: 'space-arena-server',
+        uptime: Math.round(
+          process.uptime(),
+        ),
+      });
+      return;
+    }
+
+    // ------------------------------------
+    // ОТРИМАННЯ СПИСКУ КІМНАТ
+    // ------------------------------------
+
+    if (
+      req.method === 'GET' &&
+      url.pathname === '/api/rooms'
+    ) {
+      sendJson(res, 200, {
+        rooms: roomManager.listRooms(),
+      });
+      return;
+    }
+
+    // ------------------------------------
+    // СТВОРЕННЯ НОВОЇ КІМНАТИ
+    // ------------------------------------
+
+    if (
+      req.method === 'POST' &&
+      url.pathname === '/api/rooms'
+    ) {
+      try {
+        const body =
+          await readJsonBody(req);
+
+        if (
+          body === null ||
+          typeof body !== 'object' ||
+          Array.isArray(body)
+        ) {
+          sendJson(res, 400, {
+            error:
+              'Request body must be an object',
+          });
+          return;
+        }
+
+        const room =
+          roomManager.createRoom(
+            body.name,
+            body.maxPlayers ?? 8,
+          );
+
+        sendJson(res, 201, {
+          room: room.toJSON(),
+        });
+      } catch (error) {
+        sendJson(
+          res,
+          error.statusCode ?? 400,
+          {
+            error: error.message,
+          },
+        );
       }
+
+      return;
     }
 
-    sendJson(res, 404, {
-      error: 'API route not found',
-    });
-    return;
-  }
+    // ------------------------------------
+    // НЕВІДОМІ API-МАРШРУТИ
+    // ------------------------------------
 
-  // Serve the built client
-  await serveStatic(req, res, url.pathname);
-});
+    if (
+      url.pathname === '/api' ||
+      url.pathname.startsWith('/api/')
+    ) {
+      if (
+        req.method === 'GET' ||
+        req.method === 'HEAD'
+      ) {
+        if (
+          url.pathname.endsWith('.json')
+        ) {
+          await serveStatic(
+            req,
+            res,
+            url.pathname,
+          );
+          return;
+        }
+      }
 
-// WebSocket server
-const wss = setupWebSocket(server, roomManager);
+      sendJson(res, 404, {
+        error: 'API route not found',
+      });
+      return;
+    }
+
+    // ------------------------------------
+    // ІНТЕРФЕЙС SPACE ARENA
+    // ------------------------------------
+
+    await serveStatic(
+      req,
+      res,
+      url.pathname,
+    );
+  },
+);
+
+// ========================================
+// WEBSOCKET-СЕРВЕР
+// ========================================
+
+const wss = setupWebSocket(
+  server,
+  roomManager,
+);
+
+// ========================================
+// ОБРОБКА ПОМИЛОК
+// ========================================
 
 server.on('error', (error) => {
-  console.error('[HTTP] Server error:', error.message);
+  console.error(
+    '[HTTP] Server error:',
+    error.message,
+  );
+
   process.exitCode = 1;
 });
 
-server.listen(config.port, config.host, () => {
-  console.log('Space Arena server started');
-  console.log(`HTTP: http://${config.host}:${config.port}`);
-  console.log(`Static files: ${clientDist}`);
-  console.log(`Logs: ${config.logDir}`);
-  console.log('WebSocket: /ws');
-});
+// ========================================
+// ЗАПУСК СЕРВЕРА
+// ========================================
 
-// Graceful shutdown
+server.listen(
+  config.port,
+  config.host,
+  () => {
+    console.log(
+      'Space Arena server started',
+    );
+
+    console.log(
+      `HTTP: http://${config.host}:${config.port}`,
+    );
+
+    console.log(
+      `Static files: ${clientDist}`,
+    );
+
+    console.log(
+      `Logs: ${config.logDir}`,
+    );
+
+    console.log('WebSocket: /ws');
+
+    console.log(
+      `[Rooms] Available: ${roomManager.listRooms().length}`,
+    );
+  },
+);
+
+// ========================================
+// КОРЕКТНЕ ЗАВЕРШЕННЯ РОБОТИ
+// ========================================
+
 let shuttingDown = false;
 
 async function shutdown(signal) {
-  if (shuttingDown) return;
+  if (shuttingDown) {
+    return;
+  }
 
   shuttingDown = true;
 
-  console.log(`\nReceived ${signal}. Shutting down...`);
+  console.log(
+    `\nReceived ${signal}. Shutting down...`,
+  );
 
-  const httpClosed = new Promise((resolve) => {
-    server.close((error) => {
-      if (error) {
-        console.error('[HTTP] Close error:', error.message);
-      }
-      resolve();
-    });
-  });
+  const httpClosed = new Promise(
+    (resolve) => {
+      server.close((error) => {
+        if (error) {
+          console.error(
+            '[HTTP] Close error:',
+            error.message,
+          );
+        }
+
+        resolve();
+      });
+    },
+  );
 
   for (const socket of wss.clients) {
     socket.terminate();
@@ -355,10 +514,17 @@ async function shutdown(signal) {
     await httpClosed;
     await matchLogger.close();
 
-    console.log('Match logs saved successfully');
+    console.log(
+      'Match logs saved successfully',
+    );
+
     process.exitCode = 0;
   } catch (error) {
-    console.error('Shutdown error:', error);
+    console.error(
+      'Shutdown error:',
+      error,
+    );
+
     process.exitCode = 1;
   }
 }

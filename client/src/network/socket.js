@@ -1,4 +1,6 @@
 
+/* global WebSocket, URL, window, setTimeout, clearTimeout */
+
 export class GameSocket {
   constructor(url = '/ws') {
     this.url = url;
@@ -7,14 +9,14 @@ export class GameSocket {
     this.queue = [];
     this.listeners = new Map();
 
+    this.joined = false;
+    this.joinData = null;
+
     this.reconnectAttempts = 0;
     this.reconnectTimer = null;
 
     this.maxReconnectDelay = 10000;
     this.shouldReconnect = false;
-
-    // Дані для автоматичного повторного входу
-    this.joinData = null;
   }
 
   on(type, callback) {
@@ -45,6 +47,7 @@ export class GameSocket {
     }
 
     this.shouldReconnect = true;
+    this.joined = false;
 
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -65,7 +68,6 @@ export class GameSocket {
 
       this.emit('open');
 
-      // Автоматично входимо в кімнату
       if (this.joinData) {
         socket.send(JSON.stringify(this.joinData));
       } else {
@@ -79,16 +81,20 @@ export class GameSocket {
       try {
         const message = JSON.parse(event.data);
 
+        if (message.type === 'joined') {
+          this.joined = true;
+        }
+
         this.emit('message', message);
         this.emit(message.type, message);
 
-        // Після підтвердження входу надсилаємо чергу
         if (message.type === 'joined') {
           this.flushQueue();
         }
-      } catch {
+      } catch (error) {
         this.emit('error', {
-          message: 'Invalid server JSON',
+          message: 'Invalid server JSON or message handler error',
+          error,
         });
       }
     });
@@ -97,6 +103,7 @@ export class GameSocket {
       if (this.socket !== socket) return;
 
       this.socket = null;
+      this.joined = false;
 
       this.emit('close', event);
 
@@ -115,6 +122,8 @@ export class GameSocket {
   }
 
   join(roomId, name) {
+    this.joined = false;
+
     this.joinData = {
       type: 'join',
       roomId,
@@ -130,8 +139,6 @@ export class GameSocket {
     const data = JSON.stringify(message);
 
     if (this.socket?.readyState === WebSocket.OPEN) {
-      // Поки сервер не підтвердив вхід,
-      // повідомлення залишаються в черзі.
       if (this.joinData && !this.joined) {
         this.enqueue(data);
         return;
@@ -155,7 +162,8 @@ export class GameSocket {
   flushQueue() {
     while (
       this.queue.length > 0 &&
-      this.socket?.readyState === WebSocket.OPEN
+      this.socket?.readyState === WebSocket.OPEN &&
+      (!this.joinData || this.joined)
     ) {
       this.socket.send(this.queue.shift());
     }
@@ -187,6 +195,7 @@ export class GameSocket {
 
   disconnect() {
     this.shouldReconnect = false;
+    this.joined = false;
     this.joinData = null;
 
     clearTimeout(this.reconnectTimer);
