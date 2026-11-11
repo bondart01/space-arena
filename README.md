@@ -1,4 +1,3 @@
-
 # Space Arena
 
 Браузерна 2D-гра на JavaScript із використанням HTML5 Canvas API.
@@ -14,6 +13,8 @@
 - Web Audio API
 - Fetch API
 - ESLint, Prettier
+- Node.js, HTTP, WebSocket (`ws`), Streams
+- npm workspaces
 - Git та GitHub
 
 ## Запуск проєкту
@@ -25,7 +26,7 @@ npm install
 npm run dev
 ```
 
-Відкрити локальну адресу, яку виведе Vite, наприклад:
+Відкрити локальну адресу, яку виведе Vite (порт може змінюватися, якщо 5175 зайнятий), наприклад:
 
 http://localhost:5175/
 
@@ -213,7 +214,7 @@ Object.hasOwn(ship, 'fire');           // false
 ### Запуск експерименту
 
 ```bash
-node src/sim/this-experiment.js
+node client/src/sim/this-experiment.js
 ```
 
 ### Висновок до лабораторної №2
@@ -240,10 +241,10 @@ node src/sim/this-experiment.js
 
 Реалізовано модулі:
 
-- `src/async/loader.js` — завантаження ресурсів.
-- `src/async/retry.js` — повторні спроби запитів.
-- `public/manifest.json` — перелік ресурсів.
-- `src/game/loading.js` — екран завантаження.
+- `client/src/async/loader.js` — завантаження ресурсів.
+- `client/src/async/retry.js` — повторні спроби запитів.
+- `client/public/manifest.json` — перелік ресурсів.
+- `client/src/game/loading.js` — екран завантаження.
 
 Використано:
 
@@ -268,14 +269,14 @@ PNG-зображення:
 - `bullet.png`
 - `asteroid.png`
 
-Модуль `src/game/render.js` відповідає
+Модуль `client/src/game/render.js` відповідає
 за відображення ігрових об'єктів.
 
 ### Звуковий супровід
 
 Реалізовано модуль:
 
-`src/audio/audio.js`
+`client/src/audio/audio.js`
 
 Використано Web Audio API.
 
@@ -292,7 +293,7 @@ PNG-зображення:
 
 Створено модуль:
 
-`src/events/game-events.js`
+`client/src/events/game-events.js`
 
 Для обміну повідомленнями між компонентами
 використано `EventTarget` та `CustomEvent`.
@@ -310,9 +311,9 @@ PNG-зображення:
 
 Реалізовано:
 
-- `src/lobby/lobby.js`
-- `src/lobby/lobby-ui.js`
-- `public/api/rooms.json`
+- `client/src/lobby/lobby.js`
+- `client/src/lobby/lobby-ui.js`
+- `client/public/api/rooms.json`
 
 У лобі можна переглянути доступні кімнати,
 ввести ім'я гравця, вибрати кімнату
@@ -325,7 +326,7 @@ PNG-зображення:
 
 Створено модуль:
 
-`src/async/event-loop-experiments.js`
+`client/src/async/event-loop-experiments.js`
 
 Тестова сторінка:
 
@@ -343,13 +344,13 @@ PNG-зображення:
 
 Відкрити тестову сторінку через Vite:
 
-http://localhost:5175/event-loop-test.html
+http://localhost:5175/event-loop-test.html (якщо тестова сторінка наявна у client/)
 
 ### Обробка асинхронних помилок
 
 Створено модуль:
 
-`src/async/error-tests.js`
+`client/src/async/error-tests.js`
 
 Тестова сторінка:
 
@@ -372,7 +373,7 @@ http://localhost:5175/event-loop-test.html
 
 Відкрити тестову сторінку:
 
-http://localhost:5175/error-test.html
+http://localhost:5175/error-test.html (якщо тестова сторінка наявна у client/)
 
 ### Git та GitHub
 
@@ -403,13 +404,151 @@ Web Audio API, реалізовано лобі
 механізми скасування запитів,
 тайм-аути та повторні спроби.
 
+
+---
+
+## Лабораторна робота №4 — Node.js, HTTP, WebSocket та Streams
+
+### Мета роботи
+
+Побудувати серверну частину гри Space Arena на Node.js, організувати обмін повідомленнями між клієнтами через WebSocket, реалізувати HTTP API, потокове журналювання подій і дослідити Event Loop, EventEmitter та Backpressure.
+
+### Структура проєкту
+
+Починаючи з лабораторної №4 використано npm workspaces:
+
+```text
+space-arena/
+├── client/
+│   ├── src/                 # Логіка браузерної гри
+│   │   └── network/socket.js
+│   ├── public/              # Графіка, аудіо та JSON-ресурси
+│   ├── dist/                # Результат збірки (не в Git)
+│   └── vite.config.js       # Vite та proxy для /api і /ws
+├── server/
+│   ├── src/
+│   │   ├── index.js         # HTTP API, статичні файли, завершення
+│   │   ├── config.js        # PORT, LOG_DIR, HOST
+│   │   ├── room.js          # Кімната на основі EventEmitter
+│   │   ├── room-manager.js  # Створення й видалення кімнат
+│   │   ├── websocket.js     # WebSocket-з'єднання та повідомлення
+│   │   ├── match-logger.js  # NDJSON та pipeline
+│   │   ├── replay.js        # Потокове відтворення журналу
+│   │   └── backpressure-test.js
+│   └── logs/                # Локальні журнали (не в Git)
+├── package.json
+└── README.md
+```
+
+### Запуск
+
+Встановлення залежностей у корені репозиторію:
+
+```bash
+npm install
+```
+
+Режим розробки — у двох окремих терміналах:
+
+```bash
+npm run dev:server
+npm run dev
+```
+
+Клієнт запускається через Vite (типово порт 5175, якщо доступний); проксі перенаправляє `/api/rooms` і `/ws` на Node.js сервер.
+
+Запуск зібраної гри без Vite:
+
+```bash
+npm run build
+npm run dev:server
+```
+
+Адреса гри: `http://127.0.0.1:3000/`. Сервер читає статичні файли з `client/dist`, використовує потокове передавання файлів та перевіряє шлях, щоб не дозволяти вихід за межі каталогу збірки.
+
+### HTTP API
+
+| Метод | Маршрут | Призначення |
+|---|---|---|
+| GET | `/health` | Стан сервера та uptime |
+| GET | `/api/rooms` | Список ігрових кімнат |
+| POST | `/api/rooms` | Створення кімнати (`name`, `maxPlayers`) |
+| GET | `/` | Головна сторінка зібраного клієнта |
+
+Тіло POST-запиту обробляється як JSON з обмеженням розміру 16 КіБ. Під час фінального тестування сервер повернув `status: ok`, а створена кімната `Lab 4 Final Test` з'явилася в GET `/api/rooms` з лімітом 4 гравці.
+
+### WebSocket і життєвий цикл кімнат
+
+WebSocket працює за маршрутом `/ws`. Клієнт передає `join` з `roomId` і `name`, а також `chat` з полем `text`. Сервер надсилає події `joined`, `player_joined`, `chat`. Використано перевірку JSON, обмеження розміру повідомлення, тайм-аут входу, ping/pong та обмеження частоти повідомлень. Клієнтський `GameSocket` підтримує чергу повідомлень і повторне підключення.
+
+Під час фінального тесту за адресою `ws://127.0.0.1:3000/ws` успішно отримано `joined`, `player_joined` та `chat` із текстом `Lab 4 WebSocket final test!`.
+
+`Room` успадковує `EventEmitter`, а `RoomManager` керує створенням кімнат і видаляє порожні кімнати після виходу останнього гравця.
+
+### Журналювання NDJSON та Streams
+
+`MatchLogger` записує події `roomCreated`, `roomDeleted`, `playerJoined`, `playerLeft`, `chat` у файл `server/logs/matches.ndjson`. Для потокового запису застосовано `PassThrough`, `Transform`, `createWriteStream` і `pipeline`. Кожен рядок містить окремий JSON-об'єкт і часову мітку.
+
+Модуль `server/src/replay.js` використовує `createReadStream` і `readline` для послідовного читання рядків без завантаження всього файлу в оперативну пам'ять.
+
+Приклад запуску replay із кореня репозиторію:
+
+```bash
+node --input-type=module -e "import { replayLogs } from './server/src/replay.js'; await replayLogs('./server/logs/matches.ndjson');"
+```
+
+Під час одного з тестів replay прочитано 16 подій: `roomCreated` — 5, `playerJoined` — 4, `playerLeft` — 3, `roomDeleted` — 3, `chat` — 1.
+
+### Результати експериментів
+
+| Дослідження | Зафіксований результат |
+|---|---|
+| Потокове читання великого NDJSON | 100 000 записів, файл приблизно 95,18 МБ |
+| Використання пам'яті | Максимальне спостережене RSS ≈ 49,82 МБ під час тесту читання |
+| Синхронне блокування Event Loop | Затримка близько 300 мс; два паралельні HTTP-запити завершилися приблизно за 353,67 мс |
+| `EventEmitter` без обробника `error` | Процес завершився з помилкою |
+| `EventEmitter` з обробником `error` | Помилку перехоплено, виконання продовжилося |
+| Backpressure | 100 блоків записано, 100 оброблено, 25 подій очікування `drain` |
+| Graceful Shutdown | `SIGINT` оброблено, повідомлення `Match logs saved successfully` отримано |
+| HTTP API | `/health`, GET і POST `/api/rooms` працюють |
+| WebSocket | Підключення, приєднання до кімнати та чат працюють |
+
+Показник RSS — найбільше значення серед виконаних вимірювань, а не гарантований абсолютний пік пам'яті.
+
+Запуск експерименту Backpressure:
+
+```bash
+node server/src/backpressure-test.js
+```
+
+### Перевірка захисту Path Traversal
+
+| HTTP-запит | Отриманий код |
+|---|---:|
+| `/index.html` | 200 |
+| `/assets/` | 404 |
+| `/%2e%2e/server/package.json` | 404 |
+| `/%2e%2e%2fserver%2fpackage.json` | 403 |
+| `/%5c..%5cserver%5cpackage.json` | 403 |
+| `/nonexistent-file.txt` | 404 |
+
+Усі перевірені спроби виходу за межі `client/dist` не повернули вміст сторонніх файлів.
+
+### Коректне завершення роботи
+
+При натисканні Ctrl+C сервер обробляє `SIGINT`, припиняє HTTP-обслуговування, закриває активні WebSocket-з'єднання та завершує запис журналу. Зафіксовано повідомлення `Received SIGINT. Shutting down...` і `Match logs saved successfully`.
+
+### Висновок до лабораторної №4
+
+У межах лабораторної роботи реалізовано серверну архітектуру гри Space Arena на Node.js, HTTP API, WebSocket-обмін і керування ігровими кімнатами. Досліджено поведінку Event Loop, EventEmitter, потокове читання великих файлів і механізм Backpressure. Перевірено збереження NDJSON-журналів, коректне завершення роботи та захист статичних файлів від перевірених спроб Path Traversal. Результати підтверджують працездатність основних мережевих і потокових компонентів проєкту.
+
 ---
 
 ## Перевірка якості коду
 
 ```bash
-npx eslint src
-npx prettier --check src
+npm run lint
+npx prettier --check client/src
 npm run build
 ```
 
@@ -420,3 +559,4 @@ npm run build
 | №1 | `lab-01` |
 | №2 | `lab-02` |
 | №3 | `lab-03` |
+| №4 | `lab-04` |

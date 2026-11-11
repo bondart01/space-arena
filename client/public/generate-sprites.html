@@ -1,0 +1,124 @@
+
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>Space Arena Sprite Generator</title>
+</head>
+<body>
+  <h2>Space Arena — Sprite Generator</h2>
+
+  <button id="bullet">Download bullet.png</button>
+  <button id="asteroid">Download asteroid.png</button>
+
+  <script>
+    function download(canvas, filename) {
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    }
+
+    document.querySelector('#bullet').addEventListener(
+      'click',
+      () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 32;
+
+        const ctx = canvas.getContext('2d');
+
+        for (let i = 0; i < 4; i++) {
+          const x = i * 32 + 16;
+          const y = 16;
+
+          const glow = ctx.createRadialGradient(
+            x, y, 1,
+            x, y, 12 + i,
+          );
+
+          glow.addColorStop(0, '#ffffff');
+          glow.addColorStop(0.3, '#67e8f9');
+          glow.addColorStop(1, 'rgba(34, 211, 238, 0)');
+
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(x, y, 12 + i, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(x, y, 3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        download(canvas, 'bullet.png');
+      },
+    );
+
+    document.querySelector('#asteroid').addEventListener(
+      'click',
+      () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 64;
+
+        const ctx = canvas.getContext('2d');
+
+        for (let i = 0; i < 4; i++) {
+          const x = i * 64 + 32;
+          const y = 32;
+
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(i * 0.2);
+
+          ctx.fillStyle = '#475569';
+          ctx.strokeStyle = '#cbd5e1';
+          ctx.lineWidth = 2;
+
+          ctx.beginPath();
+
+          const points = [
+            [0, -26],
+            [19, -19],
+            [27, -3],
+            [17, 22],
+            [-5, 27],
+            [-25, 12],
+            [-21, -15],
+          ];
+
+          points.forEach(([px, py], index) => {
+            if (index === 0) {
+              ctx.moveTo(px, py);
+            } else {
+              ctx.lineTo(px, py);
+            }
+          });
+
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = '#334155';
+
+          for (const [cx, cy, radius] of [
+            [-8, -7, 6],
+            [10, 5, 5],
+            [-5, 13, 4],
+          ]) {
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          ctx.restore();
+        }
+
+        download(canvas, 'asteroid.png');
+      },
+    );
+  </script>
+</body>
+</html>

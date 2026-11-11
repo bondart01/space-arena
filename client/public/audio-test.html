@@ -1,0 +1,79 @@
+
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <title>Space Arena — Audio Test</title>
+</head>
+<body>
+  <h2>Space Arena — Audio Test</h2>
+
+  <button id="testButton">
+    Test Audio
+  </button>
+
+  <pre id="result">
+    Натисніть Test Audio
+  </pre>
+
+  <script>
+    const button = document.querySelector('#testButton');
+    const result = document.querySelector('#result');
+
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      result.textContent = '';
+
+      const files = [
+        'shoot.wav',
+        'hit.wav',
+        'explosion.wav',
+      ];
+
+      const context = new AudioContext();
+
+      try {
+        await context.resume();
+
+        for (const file of files) {
+          try {
+            const response = await fetch(
+              `/assets/audio/${file}`,
+            );
+
+            if (!response.ok) {
+              throw new Error(
+                `HTTP ${response.status}`,
+              );
+            }
+
+            const arrayBuffer =
+              await response.arrayBuffer();
+
+            const audioBuffer =
+              await context.decodeAudioData(arrayBuffer);
+
+            result.textContent +=
+              `${file}: OK\n` +
+              `Duration: ${audioBuffer.duration.toFixed(2)} s\n` +
+              `Sample rate: ${audioBuffer.sampleRate}\n\n`;
+
+            const source =
+              context.createBufferSource();
+
+            source.buffer = audioBuffer;
+            source.connect(context.destination);
+            source.start();
+          } catch (error) {
+            result.textContent +=
+              `${file}: ERROR — ${error.message}\n\n`;
+          }
+        }
+      } finally {
+        await context.close();
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
