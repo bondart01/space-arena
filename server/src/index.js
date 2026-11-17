@@ -5,8 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 
-import { config } from './config.js';
-import { RoomManager } from './room-manager.js';
+import { config } from './config.ts';
+import { RoomManager } from './room-manager.ts';
 import { setupWebSocket } from './websocket.js';
 import { MatchLogger } from './match-logger.js';
 

@@ -14,11 +14,11 @@ import { createLoop } from './game/loop.js';
 
 import { GameSocket } from './network/socket.js';
 import { ClientPrediction } from './network/prediction.js';
-import { RemoteInterpolation } from './network/interpolation.js';
+import { RemoteInterpolation } from './network/interpolation.ts';
 import { BulletPrediction } from './network/bullet-prediction.js';
-import { NetworkStats } from './network/network-stats.js';
+import { NetworkStats } from './network/network-stats.ts';
 
-import { createNetworkRenderer } from './game/network-render.js';
+import { createNetworkRenderer } from './game/network-render.ts';
 
 import { withRetry } from './async/retry.js';
 import { fetchJson, loadAll } from './async/loader.js';
@@ -50,9 +50,15 @@ let loadedAssets = new Map();
 // ІГРОВІ ПОДІЇ
 // ========================================
 
-gameEvents.on('fired', () => gameAudio.play('shoot'));
-gameEvents.on('hit', () => gameAudio.play('hit'));
-gameEvents.on('exploded', () => gameAudio.play('explosion'));
+gameEvents.on('fired', () => {
+  console.debug('[audio] fired:', gameAudio.play('shoot'));
+});
+gameEvents.on('hit', () => {
+  console.debug('[audio] hit:', gameAudio.play('hit'));
+});
+gameEvents.on('exploded', () => {
+  console.debug('[audio] exploded:', gameAudio.play('explosion'));
+});
 
 // ========================================
 // КНОПКИ
@@ -174,6 +180,11 @@ function startGame(room, playerName) {
   canvas.style.display = 'block';
   showGameInfo(true);
 
+  // Entering the game is a user interaction; resume audio if the browser suspended it.
+  gameAudio.initialize().catch((error) => {
+    console.warn('[audio] Unable to resume:', error);
+  });
+
   const input = createInput();
   const socket = new GameSocket('/ws');
 
@@ -193,6 +204,7 @@ function startGame(room, playerName) {
 
   let playerId = null;
   let snapshot = null;
+  let previousAudioSnapshot = null;
 
   let seq = 0;
   let lastAck = 0;
@@ -220,6 +232,7 @@ function startGame(room, playerName) {
   function resetNetworkState() {
     playerId = null;
     snapshot = null;
+    previousAudioSnapshot = null;
 
     seq = 0;
     lastAck = 0;
@@ -330,6 +343,51 @@ function startGame(room, playerName) {
 
       lastSnapshotTick = incomingSnapshot.tick;
       snapshot = incomingSnapshot;
+
+      // Sound events are derived from accepted authoritative snapshots, not
+      // from every render frame. This prevents audio playing 60 times/second.
+      if (previousAudioSnapshot) {
+        const previousBullets = new Set(
+          (previousAudioSnapshot.bullets ?? [])
+            .filter((bullet) => bullet && bullet.id != null)
+            .map((bullet) => String(bullet.id)),
+        );
+        const newBullets = (incomingSnapshot.bullets ?? []).filter(
+          (bullet) => bullet && bullet.id != null &&
+            !previousBullets.has(String(bullet.id)),
+        );
+        // A single effect per accepted snapshot even if several shots occurred.
+        if (newBullets.length > 0) gameEvents.emit('fired');
+
+        const previousShips = previousAudioSnapshot.ships ?? {};
+        const currentShips = incomingSnapshot.ships ?? {};
+        let damageOccurred = false;
+        let shipDestroyed = false;
+        for (const [id, ship] of Object.entries(currentShips)) {
+          const previous = previousShips[id];
+          if (!previous || !ship) continue;
+          if (Number.isFinite(previous.health) && Number.isFinite(ship.health) &&
+              ship.health < previous.health) {
+            damageOccurred = true;
+            if (ship.health <= 0 && previous.health > 0) shipDestroyed = true;
+          }
+        }
+        if (damageOccurred) gameEvents.emit('hit');
+        if (shipDestroyed) gameEvents.emit('exploded');
+
+        // Asteroid disappearance is a useful explosion cue when IDs are present.
+        const oldAsteroids = previousAudioSnapshot.asteroids ?? [];
+        const newAsteroids = incomingSnapshot.asteroids ?? [];
+        if (oldAsteroids.length > 0 &&
+            oldAsteroids.every((asteroid) => asteroid?.id != null) &&
+            newAsteroids.every((asteroid) => asteroid?.id != null)) {
+          const newIds = new Set(newAsteroids.map((asteroid) => String(asteroid.id)));
+          if (oldAsteroids.some((asteroid) => !newIds.has(String(asteroid.id)))) {
+            gameEvents.emit('exploded');
+          }
+        }
+      }
+      previousAudioSnapshot = incomingSnapshot;
 
       interpolation.addSnapshot(incomingSnapshot);
 
@@ -455,8 +513,12 @@ function startGame(room, playerName) {
       `Server tick: ${snapshot?.tick ?? 0} | ` +
       `Delay: ${NETWORK_DELAY_MS} ms`;
 
+    const me = snapshot?.ships?.[playerId];
+    const scoreboard = Object.values(snapshot?.ships ?? {})
+      .map((ship) => `${ship.id === playerId ? 'YOU' : 'RIVAL'}: ${ship.score} pts / ${ship.health} HP`)
+      .join(' | ');
     scoreElement.textContent =
-      `Input seq: ${seq} | ACK: ${lastAck}`;
+      `${scoreboard || 'Waiting for players'} | Input seq: ${seq} | ACK: ${lastAck}`;
 
     predictionElement.textContent =
       `Prediction: ${

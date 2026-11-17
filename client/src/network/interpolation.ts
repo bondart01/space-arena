@@ -1,3 +1,22 @@
+// Network snapshots are validated at the protocol boundary. This module
+// only needs the ship fields used by the interpolation algorithm.
+export interface RemoteShip {
+  x: number;
+  y: number;
+  angle: number;
+  [key: string]: unknown;
+}
+
+export interface RemoteSnapshot {
+  tick: number;
+  ships?: Record<string, RemoteShip>;
+}
+
+interface TimedSnapshot {
+  snapshot: RemoteSnapshot;
+  receivedAt: number;
+}
+
 
 import {
   WORLD_WIDTH,
@@ -7,7 +26,7 @@ import {
 const INTERPOLATION_DELAY_MS = 100;
 const MAX_SNAPSHOTS = 20;
 
-function interpolateWrapped(a, b, t, size) {
+function interpolateWrapped(a: number, b: number, t: number, size: number): number {
   let difference = b - a;
 
   if (difference > size / 2) {
@@ -19,7 +38,7 @@ function interpolateWrapped(a, b, t, size) {
   return ((a + difference * t) % size + size) % size;
 }
 
-function interpolateAngle(a, b, t) {
+function interpolateAngle(a: number, b: number, t: number): number {
   let difference = b - a;
 
   difference =
@@ -32,12 +51,14 @@ function interpolateAngle(a, b, t) {
 }
 
 export class RemoteInterpolation {
+  delay: number;
+  snapshots: TimedSnapshot[];
   constructor(delay = INTERPOLATION_DELAY_MS) {
     this.delay = delay;
     this.snapshots = [];
   }
 
-  addSnapshot(snapshot, receivedAt = performance.now()) {
+  addSnapshot(snapshot: RemoteSnapshot | null | undefined, receivedAt = performance.now()): void {
     if (!snapshot || !Number.isFinite(snapshot.tick)) {
       return;
     }
@@ -60,23 +81,23 @@ export class RemoteInterpolation {
   }
 
   getInterpolatedShips(
-    localPlayerId,
+    localPlayerId: string,
     now = performance.now(),
-  ) {
+  ): Record<string, RemoteShip> {
     if (this.snapshots.length === 0) {
       return {};
     }
 
     const targetTime = now - this.delay;
 
-    let older = this.snapshots[0];
+    let older = this.snapshots[0]!;
     let newer =
-      this.snapshots[this.snapshots.length - 1];
+      this.snapshots[this.snapshots.length - 1]!;
 
     for (let i = 1; i < this.snapshots.length; i += 1) {
-      if (this.snapshots[i].receivedAt >= targetTime) {
-        older = this.snapshots[i - 1];
-        newer = this.snapshots[i];
+      if (this.snapshots[i]!.receivedAt >= targetTime) {
+        older = this.snapshots[i - 1]!;
+        newer = this.snapshots[i]!;
         break;
       }
     }
@@ -95,7 +116,7 @@ export class RemoteInterpolation {
           )
         : 1;
 
-    const ships = {};
+    const ships: Record<string, RemoteShip> = {};
 
     for (const [id, ship] of Object.entries(
       newer.snapshot.ships ?? {},
@@ -140,7 +161,7 @@ export class RemoteInterpolation {
     return ships;
   }
 
-  reset() {
+  reset(): void {
     this.snapshots = [];
   }
 }

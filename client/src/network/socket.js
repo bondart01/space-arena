@@ -1,7 +1,7 @@
 
 /* global WebSocket, URL, window, setTimeout, clearTimeout, TextEncoder */
 
-import { encodeInput } from '../../../shared/src/binary-protocol.js';
+import { encodeInput } from '@space-arena/shared/binary-protocol';
 
 export class GameSocket {
   constructor(url = '/ws') {

@@ -1,13 +1,14 @@
-
 {
   "name": "@space-arena/server",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node src/index.js"
+    "dev": "node --experimental-strip-types src/index.js",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^4.6.7"
   }
 }

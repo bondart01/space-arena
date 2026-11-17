@@ -1,7 +1,8 @@
 
 import { randomUUID } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { decodeInput } from '../../shared/src/binary-protocol.js';
+import { decodeInput } from '@space-arena/shared/binary-protocol';
+import { parseClientMessage } from '@space-arena/shared/protocol';
 
 const MAX_MESSAGE_SIZE = 4096;
 const MAX_MESSAGES_PER_SECOND = 120;
@@ -134,22 +135,22 @@ export function setupWebSocket(server, roomManager) {
         }
       } else {
         try {
-          message = JSON.parse(raw.toString());
-        } catch {
+          const value = JSON.parse(raw.toString());
+          message = parseClientMessage(value);
+          if (!message) {
+            console.error('[WS] Invalid JSON message schema');
+            socket.close(1008, 'Invalid message');
+            return;
+          }
+        } catch (error) {
+          console.error('[WS] Invalid JSON:', error);
           socket.close(1007, 'Invalid JSON');
           return;
         }
       }
 
-      if (
-        !message ||
-        typeof message !== 'object' ||
-        Array.isArray(message) ||
-        typeof message.type !== 'string'
-      ) {
-        socket.close(1008, 'Invalid message');
-        return;
-      }
+      // Binary payload was already checked by decodeInput;
+      // JSON payload was validated with Zod.
 
       // ====================================
       // ТИПИ ПОВІДОМЛЕНЬ
@@ -161,14 +162,6 @@ export function setupWebSocket(server, roomManager) {
         // ----------------------------------
 
         case 'ping': {
-          if (
-            !Number.isSafeInteger(message.id) ||
-            message.id < 0
-          ) {
-            socket.close(1008, 'Invalid ping');
-            return;
-          }
-
           send(socket, {
             type: 'pong',
             id: message.id,
@@ -184,16 +177,6 @@ export function setupWebSocket(server, roomManager) {
         case 'join': {
           if (currentRoom) {
             socket.close(1008, 'Already joined');
-            return;
-          }
-
-          if (
-            typeof message.roomId !== 'string' ||
-            typeof message.name !== 'string' ||
-            message.name.trim().length === 0 ||
-            message.name.length > 30
-          ) {
-            socket.close(1008, 'Invalid join data');
             return;
           }
 
@@ -242,19 +225,6 @@ export function setupWebSocket(server, roomManager) {
         case 'input': {
           if (!currentRoom) {
             socket.close(1008, 'Join required');
-            return;
-          }
-
-          if (
-            !Number.isSafeInteger(message.seq) ||
-            message.seq < 1 ||
-            message.seq > 0xffffffff ||
-            typeof message.thrust !== 'boolean' ||
-            typeof message.left !== 'boolean' ||
-            typeof message.right !== 'boolean' ||
-            typeof message.shoot !== 'boolean'
-          ) {
-            socket.close(1008, 'Invalid input');
             return;
           }
 

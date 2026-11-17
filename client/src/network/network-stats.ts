@@ -1,11 +1,22 @@
 
 /* global TextEncoder */
 export class NetworkStats {
+  rtt: number | null = null;
+  jitter = 0;
+  lastSnapshotTime: number | null = null;
+  snapshotInterval: number | null = null;
+  snapshotJitter = 0;
+  receivedSnapshots = 0;
+  lostSnapshots = 0;
+  lastTick: number | null = null;
+  sentBytes = 0;
+  receivedBytes = 0;
+  startedAt = 0;
   constructor() {
     this.reset();
   }
 
-  reset() {
+  reset(): void {
     this.rtt = null;
     this.jitter = 0;
 
@@ -24,21 +35,21 @@ export class NetworkStats {
   }
 
   // Реєстрація відправленого повідомлення.
-  recordSent(message) {
+  recordSent(message: unknown): void {
     this.sentBytes += new TextEncoder().encode(
       JSON.stringify(message),
     ).byteLength;
   }
 
   // Реєстрація отриманого повідомлення.
-  recordReceived(message) {
+  recordReceived(message: unknown): void {
     this.receivedBytes += new TextEncoder().encode(
       JSON.stringify(message),
     ).byteLength;
   }
 
   // Вимірювання RTT за відповіддю сервера.
-  recordRtt(sampleMs) {
+  recordRtt(sampleMs: number): void {
     if (!Number.isFinite(sampleMs) || sampleMs < 0) {
       return;
     }
@@ -60,7 +71,7 @@ export class NetworkStats {
   }
 
   // Статистика отримання серверних snapshot.
-  recordSnapshot(tick, now = performance.now()) {
+  recordSnapshot(tick: number, now = performance.now()): void {
     this.receivedSnapshots += 1;
 
     if (this.lastSnapshotTime !== null) {
@@ -99,7 +110,7 @@ export class NetworkStats {
   }
 
   // Вік останнього отриманого snapshot.
-  getSnapshotAge(now = performance.now()) {
+  getSnapshotAge(now = performance.now()): number | null {
     if (this.lastSnapshotTime === null) {
       return null;
     }

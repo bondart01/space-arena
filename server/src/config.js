@@ -1,39 +1,9 @@
-
 import path from 'node:path';
-
-function parsePort(value) {
-  const port = Number(value);
-
-  if (
-    !Number.isInteger(port) ||
-    port < 1 ||
-    port > 65535
-  ) {
-    throw new Error(
-      'PORT must be an integer between 1 and 65535',
-    );
-  }
-
-  return port;
-}
-
-function parseLogDir(value) {
-  if (
-    typeof value !== 'string' ||
-    value.trim().length === 0
-  ) {
-    throw new Error('LOG_DIR must not be empty');
-  }
-
-  if (value.includes('\0')) {
-    throw new Error('LOG_DIR contains invalid characters');
-  }
-
-  return path.resolve(value);
-}
-
-export const config = Object.freeze({
-  port: parsePort(process.env.PORT ?? '3000'),
-  logDir: parseLogDir(process.env.LOG_DIR ?? './logs'),
-  host: process.env.HOST ?? '127.0.0.1',
+import { z } from 'zod';
+const envSchema = z.object({
+  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  LOG_DIR: z.string().trim().min(1).refine((s) => !s.includes('\0')).default('./logs'),
+  HOST: z.string().trim().min(1).default('127.0.0.1'),
 });
+const env = envSchema.parse(process.env);
+export const config = Object.freeze({port: env.PORT, logDir: path.resolve(env.LOG_DIR), host: env.HOST});
