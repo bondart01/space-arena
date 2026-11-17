@@ -51,17 +51,13 @@ export class Lobby extends EventTarget {
       );
 
       if (!response.ok) {
-        throw new Error(
-          `HTTP ${response.status}`,
-        );
+        throw new Error(`HTTP ${response.status}`);
       }
 
       const data = await response.json();
 
       if (!Array.isArray(data.rooms)) {
-        throw new Error(
-          'Invalid rooms response',
-        );
+        throw new Error('Invalid rooms response');
       }
 
       if (!this.visible || signal.aborted) {
@@ -79,7 +75,6 @@ export class Lobby extends EventTarget {
         }),
       );
     } catch (error) {
-      // Ігноруємо скасування при виході з лобі
       if (controller.signal.aborted) return;
       if (!this.visible) return;
 
@@ -110,10 +105,8 @@ export class Lobby extends EventTarget {
       new CustomEvent('lobbyshown'),
     );
 
-    // Завантажуємо список кімнат
     this.fetchRooms();
 
-    // Оновлюємо список кожні 5 секунд
     this.intervalId = setInterval(() => {
       this.fetchRooms();
     }, this.refreshInterval);
@@ -128,13 +121,11 @@ export class Lobby extends EventTarget {
 
     this.visible = false;
 
-    // Зупиняємо автоматичне оновлення
     if (this.intervalId !== null) {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
 
-    // Скасовуємо активний запит
     this.controller?.abort();
     this.controller = null;
 
@@ -151,8 +142,12 @@ export class Lobby extends EventTarget {
     const name = playerName.trim();
 
     if (!name) {
+      throw new Error('Enter your player name');
+    }
+
+    if (name.length > 20) {
       throw new Error(
-        'Enter your player name',
+        'Player name must be 20 characters or less',
       );
     }
 
@@ -161,11 +156,13 @@ export class Lobby extends EventTarget {
     );
 
     if (!room) {
-      throw new Error(
-        'Select a valid room',
-      );
+      throw new Error('Select a valid room');
     }
 
+    // Закриваємо лобі перед запуском гри
+    this.hide();
+
+    // Передаємо дані гравця та кімнати
     this.dispatchEvent(
       new CustomEvent('join', {
         detail: {
@@ -174,8 +171,6 @@ export class Lobby extends EventTarget {
         },
       }),
     );
-
-    this.hide();
   }
 
   // ========================================

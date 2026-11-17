@@ -1,11 +1,12 @@
-﻿name: CI
+﻿
+name: Space Arena CI
 
 on:
   push:
   pull_request:
 
 jobs:
-  typecheck-and-build:
+  test-and-build:
     runs-on: ubuntu-latest
 
     steps:
@@ -27,8 +28,20 @@ jobs:
       - name: TypeScript typecheck
         run: npm run typecheck
 
+      - name: Run determinism tests
+        run: npm run test:determinism
+
+      - name: Run unit tests
+        run: npx vitest run
+
+      - name: Check shared coverage
+        run: npx vitest run --coverage shared
+
       - name: Build project
         run: npm run build
 
-      - name: Determinism tests
-        run: npm run test:determinism
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: npx playwright test e2e/ --workers=1 --reporter=line

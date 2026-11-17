@@ -19,11 +19,15 @@
     "test:determinism": "npm run test --workspace=shared"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "@types/node": "^26.6.6",
     "@types/ws": "^8.18.2",
+    "@vitest/coverage-v8": "^5.1.0",
     "eslint": "^9.39.5",
+    "fast-check": "^4.10.2",
     "prettier": "^3.9.10",
     "typescript": "^7.0.2",
-    "vite": "^8.3.6"
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
   }
 }
