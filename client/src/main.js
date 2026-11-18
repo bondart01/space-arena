@@ -1,5 +1,4 @@
-
-/* global document, window, performance, AbortController, setTimeout, clearTimeout, setInterval, clearInterval */
+﻿/* global document, window, performance, AbortController, setTimeout, clearTimeout, setInterval, clearInterval */
 
 import { createRenderer } from './game/render.js';
 import { createLoadingScreen } from './game/loading.js';
@@ -28,10 +27,6 @@ const INTERPOLATION_DELAY_MS = 100;
 const PING_INTERVAL_MS = 1000;
 
 const canvas = document.querySelector('#gameCanvas');
-
-const fpsElement = document.querySelector('#fps');
-const spsElement = document.querySelector('#sps');
-const frameTimeElement = document.querySelector('#frameTime');
 
 const renderer = createRenderer(canvas);
 const loadingScreen = createLoadingScreen(canvas);
@@ -85,6 +80,29 @@ function createButton(text) {
 const retryButton = createButton('Retry loading');
 const audioButton = createButton('ENABLE AUDIO & CONTINUE');
 
+// Повідомлення про втрату з'єднання з сервером.
+const connectionMessage = document.createElement('div');
+connectionMessage.style.color = '#ffcc66';
+connectionMessage.style.textAlign = 'center';
+connectionMessage.style.fontFamily = 'monospace';
+connectionMessage.style.fontSize = '16px';
+connectionMessage.style.padding = '12px';
+connectionMessage.style.display = 'none';
+connectionMessage.setAttribute('role', 'status');
+connectionMessage.setAttribute('aria-live', 'polite');
+canvas.insertAdjacentElement('afterend', connectionMessage);
+
+function showConnectionMessage(message) {
+  connectionMessage.textContent = message;
+  connectionMessage.style.display = 'block';
+}
+
+function hideConnectionMessage() {
+  connectionMessage.textContent = '';
+  connectionMessage.style.display = 'none';
+}
+
+
 // ========================================
 // ІНФОРМАЦІЙНА ПАНЕЛЬ
 // ========================================
@@ -102,30 +120,8 @@ function createInfoElement(fontSize = '15px') {
   return element;
 }
 
-const hpElement = createInfoElement('18px');
 const scoreElement = createInfoElement('18px');
-const predictionElement = createInfoElement();
-const bulletElement = createInfoElement();
-
-const networkTitle = createInfoElement('18px');
-const pingElement = createInfoElement();
-const snapshotElement = createInfoElement();
-const trafficElement = createInfoElement();
-
-networkTitle.textContent = 'NETWORK STATISTICS';
-networkTitle.style.fontWeight = 'bold';
-networkTitle.style.marginTop = '14px';
-
-const infoElements = [
-  hpElement,
-  scoreElement,
-  predictionElement,
-  bulletElement,
-  networkTitle,
-  pingElement,
-  snapshotElement,
-  trafficElement,
-];
+const infoElements = [scoreElement];
 
 let previousElement = canvas;
 
@@ -138,18 +134,6 @@ function showGameInfo(visible) {
   for (const element of infoElements) {
     element.style.display = visible ? 'block' : 'none';
   }
-}
-
-function formatMs(value) {
-  if (value === null || !Number.isFinite(value)) {
-    return '--';
-  }
-
-  return value.toFixed(1);
-}
-
-function formatBytesPerSecond(value) {
-  return `${(value / 1024).toFixed(2)} KB/s`;
 }
 
 // ========================================
@@ -175,6 +159,8 @@ function startGame(room, playerName) {
   activeLoop?.stop();
   activeInput?.destroy();
   activeSocket?.disconnect();
+
+  hideConnectionMessage();
 
   lobbyUI.hide();
   canvas.style.display = 'block';
@@ -214,8 +200,6 @@ function startGame(room, playerName) {
 
   const pendingPings = new Map();
   const delayedSnapshots = new Set();
-
-  let lastStatsUpdate = 0;
 
   // ========================================
   // ОЧИЩЕННЯ МЕРЕЖЕВИХ РЕСУРСІВ
@@ -419,59 +403,59 @@ function startGame(room, playerName) {
     delayedSnapshots.add(timer);
   });
 
+  // При відключенні завершуємо сесію та повертаємося до лобі.
+  let sessionEnded = false;
+
+  function returnToLobby(reason) {
+    if (sessionEnded || activeSocket !== socket) {
+      return;
+    }
+
+    sessionEnded = true;
+    console.warn('[Network]', reason);
+
+    activeSessionCleanup?.();
+    activeSessionCleanup = null;
+
+    activeLoop?.stop();
+    activeInput?.destroy();
+
+    clearInterval(pingInterval);
+    pendingPings.clear();
+    clearDelayedSnapshots();
+    resetNetworkState();
+
+    socket.disconnect();
+
+    activeLoop = null;
+    activeInput = null;
+    activeSocket = null;
+
+    showGameInfo(false);
+    canvas.style.display = 'none';
+    showConnectionMessage(reason);
+    lobbyUI.show();
+  }
+
+  socket.on('shutdown', () => {
+    returnToLobby(
+      'Сервер завершує роботу. Спробуйте підключитися пізніше.',
+    );
+  });
+
   socket.on('error', (error) => {
     console.error('Network error:', error);
   });
 
-  socket.on('close', () => {
-    console.log('WebSocket disconnected');
-
-    pendingPings.clear();
-    clearDelayedSnapshots();
-
-    prediction.reset();
-    interpolation.reset();
-    bulletPrediction.reset();
+  socket.on('close', (event) => {
+    console.log('WebSocket disconnected:', event.code, event.reason);
+    returnToLobby(
+      'З’єднання із сервером втрачено. Спробуйте підключитися повторно.',
+    );
   });
 
   socket.join(room.id, playerName);
   socket.connect();
-
-  // ========================================
-  // ОНОВЛЕННЯ СТАТИСТИКИ
-  // ========================================
-
-  function updateNetworkPanel() {
-    const stats = networkStats.getStats();
-    const traffic = socket.getNetworkStats();
-
-    pingElement.textContent =
-      `Ping / RTT: ${formatMs(stats.rtt)} ms | ` +
-      `Jitter: ${formatMs(stats.jitter)} ms`;
-
-    snapshotElement.textContent =
-      `Snapshot Age: ${formatMs(stats.snapshotAge)} ms | ` +
-      `Interval: ${formatMs(stats.snapshotInterval)} ms | ` +
-      `Gaps: ${stats.lostSnapshots} | ` +
-      `Gap Rate: ${stats.lossPercent.toFixed(1)}%`;
-
-    const elapsedSeconds = Math.max(
-      (performance.now() - networkStats.startedAt) / 1000,
-      0.001,
-    );
-
-    const uploadBps =
-      traffic.sentBytes / elapsedSeconds;
-
-    const downloadBps =
-      traffic.receivedBytes / elapsedSeconds;
-
-    trafficElement.textContent =
-      `Upload: ${formatBytesPerSecond(uploadBps)} | ` +
-      `Download: ${formatBytesPerSecond(downloadBps)} | ` +
-      `Messages: ${traffic.sentMessages} / ` +
-      `${traffic.receivedMessages}`;
-  }
 
   // ========================================
   // INPUT ТА CLIENT PREDICTION
@@ -509,34 +493,11 @@ function startGame(room, playerName) {
 
     bulletPrediction.update();
 
-    hpElement.textContent =
-      `Server tick: ${snapshot?.tick ?? 0} | ` +
-      `Delay: ${NETWORK_DELAY_MS} ms`;
-
-    const me = snapshot?.ships?.[playerId];
     const scoreboard = Object.values(snapshot?.ships ?? {})
-      .map((ship) => `${ship.id === playerId ? 'YOU' : 'RIVAL'}: ${ship.score} pts / ${ship.health} HP`)
-      .join(' | ');
+      .map((ship) => `${ship.id === playerId ? 'YOU' : 'RIVAL'}: ${ship.score} pts | ${ship.health} HP`)
+      .join('  |  ');
     scoreElement.textContent =
-      `${scoreboard || 'Waiting for players'} | Input seq: ${seq} | ACK: ${lastAck}`;
-
-    predictionElement.textContent =
-      `Prediction: ${
-        prediction.getShip() ? 'ON' : 'WAITING'
-      } | ` +
-      `Pending inputs: ${prediction.getPendingCount()} | ` +
-      `Correction: ${prediction.getCorrection().toFixed(2)} px`;
-
-    bulletElement.textContent =
-      `Bullet Prediction: ON | ` +
-      `Local bullets: ${bulletPrediction.getBullets().length}`;
-
-    const now = performance.now();
-
-    if (now - lastStatsUpdate >= 250) {
-      updateNetworkPanel();
-      lastStatsUpdate = now;
-    }
+      scoreboard || 'Waiting for players';
   }
 
   // ========================================
@@ -582,21 +543,9 @@ function startGame(room, playerName) {
     );
   }
 
-  // ========================================
-  // FPS / SPS
-  // ========================================
-
-  function onStats({ fps, sps, frameTime }) {
-    fpsElement.textContent = fps.toFixed(1);
-    spsElement.textContent = sps.toFixed(1);
-    frameTimeElement.textContent =
-      frameTime.toFixed(2);
-  }
-
   activeLoop = createLoop({
     update,
     render,
-    onStats,
   });
 
   activeLoop.start();

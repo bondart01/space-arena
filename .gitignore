@@ -37,3 +37,11 @@ profiling/
 # Temporary test files
 *.heapsnapshot
 
+# Docker experiments
+node-original
+node-compressed
+node-stripped
+
+Dockerfile.minimal
+Dockerfile.optimized
+Dockerfile.debian12

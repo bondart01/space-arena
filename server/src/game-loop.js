@@ -16,6 +16,13 @@ export class GameLoop {
     this.running = false;
     this.timer = null;
     this.nextTickTime = 0;
+
+    // Метрики продуктивності.
+    this.lastTickDurationMs = 0;
+    this.averageTickDurationMs = 0;
+    this.maxTickDurationMs = 0;
+    this.totalTicks = 0;
+    this.totalTickDurationMs = 0;
   }
 
   start() {
@@ -44,11 +51,29 @@ export class GameLoop {
         return;
       }
 
-      const inputs = this.getInputs();
+      const tickStart = performance.now();
 
-      stepWorld(this.world, inputs, FIXED_DT);
+      try {
+        const inputs = this.getInputs();
 
-      this.onTick(this.world);
+        stepWorld(this.world, inputs, FIXED_DT);
+        this.onTick(this.world);
+      } finally {
+        // Вимірюємо час виконання ігрового такту.
+        const duration = performance.now() - tickStart;
+
+        this.lastTickDurationMs = duration;
+        this.totalTicks += 1;
+        this.totalTickDurationMs += duration;
+
+        this.averageTickDurationMs =
+          this.totalTickDurationMs / this.totalTicks;
+
+        this.maxTickDurationMs = Math.max(
+          this.maxTickDurationMs,
+          duration,
+        );
+      }
 
       this.nextTickTime += TICK_MS;
 
@@ -60,6 +85,22 @@ export class GameLoop {
 
       this.scheduleNextTick();
     }, delay);
+  }
+
+  getMetrics() {
+    return {
+      running: this.running,
+      totalTicks: this.totalTicks,
+      lastTickDurationMs: Number(
+        this.lastTickDurationMs.toFixed(3),
+      ),
+      averageTickDurationMs: Number(
+        this.averageTickDurationMs.toFixed(3),
+      ),
+      maxTickDurationMs: Number(
+        this.maxTickDurationMs.toFixed(3),
+      ),
+    };
   }
 
   stop() {

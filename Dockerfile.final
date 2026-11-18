@@ -1,0 +1,231 @@
+# ========================================
+# STAGE 1 — BUILD APPLICATION
+# ========================================
+
+FROM node:24-alpine AS builder
+
+WORKDIR /app
+
+COPY package*.json ./
+COPY client/package.json ./client/
+COPY server/package.json ./server/
+COPY shared/package.json ./shared/
+
+RUN npm ci
+
+COPY client ./client
+COPY server ./server
+COPY shared ./shared
+COPY tsconfig.base.json ./
+
+RUN npm run build
+
+
+# ========================================
+# STAGE 2 — PRODUCTION DEPENDENCIES
+# ========================================
+
+FROM node:24-alpine AS dependencies
+
+WORKDIR /app
+
+COPY package*.json ./
+COPY client/package.json ./client/
+COPY server/package.json ./server/
+COPY shared/package.json ./shared/
+
+RUN npm ci --omit=dev \
+    && npm cache clean --force
+
+
+# ========================================
+# STAGE 3 — MINIMAL RUNTIME FILES
+# ========================================
+
+
+
+# Встановлюємо кореневі SSL-сертифікати
+FROM debian:12-slim AS runtime
+
+# Інструменти використовуються лише під час складання.
+# У фінальний scratch-образ вони не потрапляють.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        binutils \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p \
+    /runtime/bin \
+    /runtime/lib/x86_64-linux-gnu \
+    /runtime/lib64 \
+    /runtime/etc/ssl/certs \
+    /runtime/tmp/space-arena-logs
+
+# Копіюємо оптимізований Node.js
+# Отримуємо Node.js із перевіреного runtime-образу.
+COPY --from=gcr.io/distroless/nodejs24-debian12:nonroot \
+    /nodejs/bin/node \
+    /runtime/bin/node
+
+# Видаляємо непотрібну налагоджувальну інформацію.
+RUN chmod 755 /runtime/bin/node \
+    && strip --strip-unneeded /runtime/bin/node
+
+# ========================================
+# NODE.JS SYSTEM LIBRARIES
+# ========================================
+
+RUN cp -L /lib/x86_64-linux-gnu/libdl.so.2 \
+        /runtime/lib/x86_64-linux-gnu/ \
+    && cp -L /lib/x86_64-linux-gnu/libstdc++.so.6 \
+        /runtime/lib/x86_64-linux-gnu/ \
+    && cp -L /lib/x86_64-linux-gnu/libm.so.6 \
+        /runtime/lib/x86_64-linux-gnu/ \
+    && cp -L /lib/x86_64-linux-gnu/libgcc_s.so.1 \
+        /runtime/lib/x86_64-linux-gnu/ \
+    && cp -L /lib/x86_64-linux-gnu/libpthread.so.0 \
+        /runtime/lib/x86_64-linux-gnu/ \
+    && cp -L /lib/x86_64-linux-gnu/libc.so.6 \
+        /runtime/lib/x86_64-linux-gnu/ \
+    && cp -L /lib64/ld-linux-x86-64.so.2 \
+        /runtime/lib64/
+
+# ========================================
+# HTTPS CERTIFICATES
+# ========================================
+
+RUN cp -L /etc/ssl/certs/ca-certificates.crt \
+    /runtime/etc/ssl/certs/
+
+# Дозволяємо непривілейованому користувачу
+# записувати файли журналу
+RUN chown -R 65532:65532 \
+    /runtime/tmp/space-arena-logs
+
+
+# ========================================
+# STAGE 4 — PRODUCTION
+# ========================================
+
+FROM scratch AS production
+
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=3000
+ENV LOG_DIR=/tmp/space-arena-logs
+
+WORKDIR /app
+
+# ========================================
+# NODE.JS
+# ========================================
+
+COPY --from=runtime \
+    /runtime/bin/node \
+    /bin/node
+
+# ========================================
+# SYSTEM LIBRARIES
+# ========================================
+
+COPY --from=runtime \
+    /runtime/lib \
+    /lib
+
+COPY --from=runtime \
+    /runtime/lib64 \
+    /lib64
+
+# ========================================
+# HTTPS CERTIFICATES
+# ========================================
+
+COPY --from=runtime \
+    /runtime/etc/ssl/certs \
+    /etc/ssl/certs
+
+# ========================================
+# LOG DIRECTORY
+# ========================================
+
+COPY --from=runtime \
+    --chown=65532:65532 \
+    /runtime/tmp/space-arena-logs \
+    /tmp/space-arena-logs
+
+# ========================================
+# PRODUCTION DEPENDENCIES
+# ========================================
+
+COPY --from=dependencies \
+    /app/node_modules \
+    ./node_modules
+
+COPY --from=dependencies \
+    /app/package.json \
+    ./package.json
+
+COPY --from=dependencies \
+    /app/server/package.json \
+    ./server/package.json
+
+COPY --from=dependencies \
+    /app/shared/package.json \
+    ./shared/package.json
+
+# ========================================
+# CLIENT BUILD
+# ========================================
+
+COPY --from=builder \
+    /app/client/dist \
+    ./client/dist
+
+# ========================================
+# SHARED BUILD
+# ========================================
+
+COPY --from=builder \
+    /app/shared/dist \
+    ./shared/dist
+
+# ========================================
+# SERVER SOURCE
+# ========================================
+
+COPY --from=builder \
+    /app/server/src \
+    ./server/src
+
+# ========================================
+# SECURITY
+# ========================================
+
+USER 65532:65532
+
+EXPOSE 3000
+
+# ========================================
+# HEALTHCHECK
+# ========================================
+
+HEALTHCHECK --interval=30s \
+    --timeout=3s \
+    --start-period=10s \
+    --retries=3 \
+    CMD ["/bin/node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+
+# ========================================
+# GRACEFUL SHUTDOWN
+# ========================================
+
+STOPSIGNAL SIGTERM
+
+# ========================================
+# START APPLICATION
+# ========================================
+
+ENTRYPOINT ["/bin/node"]
+
+CMD ["server/src/index.js"]

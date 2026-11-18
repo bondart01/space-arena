@@ -1,10 +1,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { Transform, PassThrough, pipeline } from 'node:stream';
-import { promisify } from 'node:util';
-
-const pipelineAsync = promisify(pipeline);
+import { Transform, PassThrough } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 export class MatchLogger {
   constructor(logDir) {
@@ -38,19 +36,25 @@ export class MatchLogger {
       flags: 'a',
     });
 
-    this.pipelinePromise = pipelineAsync(
+    this.pipelinePromise = pipeline(
       this.input,
       this.transform,
       this.output,
     );
 
     this.pipelinePromise.catch((error) => {
-      console.error('[MatchLogger] Pipeline error:', error);
+      console.error(
+        '[MatchLogger] Pipeline error:',
+        error,
+      );
     });
   }
 
   log(event) {
-    if (this.input.destroyed || this.input.writableEnded) {
+    if (
+      this.input.destroyed ||
+      this.input.writableEnded
+    ) {
       return false;
     }
 
